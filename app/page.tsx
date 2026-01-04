@@ -45,7 +45,7 @@ export default function LandingPage() {
            </p>
            
            <div style={{display:'flex', gap:15, flexWrap:'wrap'}}>
-              <Link href="/admin">
+              <Link href="/login">
                 <button style={{ padding: '15px 40px', fontSize: '16px', background: '#3498db', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight:'bold', boxShadow:'0 10px 20px rgba(52, 152, 219, 0.3)' }}>
                   Comenzar Gratis
                 </button>

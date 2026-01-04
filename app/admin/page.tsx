@@ -1,12 +1,31 @@
 'use client';
 
-// Asegúrate de usar las rutas correctas (./ o @/)
+// 1. IMPORTS NUEVOS (AGRÉGALOS AQUÍ ARRIBA)
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { supabase } from '@/lib/supabaseClient'; 
+
+// Tus imports originales
 import Sidebar from './../components/Sidebar'; 
 import PhoneMockup from './../components/PhoneMockup';
 import { useShop } from './../context/ShopContext';
 
 export default function Home() {
   const { shopData } = useShop();
+  
+  // 2. INICIALIZAR EL ROUTER
+  const router = useRouter();
+
+  // 3. LA PROTECCIÓN (SI NO HAY USUARIO, TE MANDA AL LOGIN)
+  useEffect(() => {
+    const checkUser = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        router.push('/login'); // <--- Patea al usuario fuera si no está logueado
+      }
+    };
+    checkUser();
+  }, [router]);
 
   return (
     <div className="contenedor-layout">
