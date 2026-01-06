@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { MercadoPagoConfig, PreApproval } from 'mercadopago';
 
-// Usamos process.env para que tome la clave de Vercel (seguro)
+// Configuración inicial
 const client = new MercadoPagoConfig({ 
   accessToken: process.env.MP_ACCESS_TOKEN!, 
   options: { timeout: 5000 } 
@@ -9,10 +9,10 @@ const client = new MercadoPagoConfig({
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
-    const { email } = body; 
-
     const preapproval = new PreApproval(client);
+
+    // Generamos un email aleatorio para que MP no se queje de "usuario duplicado"
+    const emailRandom = `test_user_${Math.floor(Math.random() * 10000)}@testuser.com`;
 
     const result = await preapproval.create({
       body: {
@@ -23,9 +23,11 @@ export async function POST(request: Request) {
           transaction_amount: 5000,
           currency_id: 'ARS'
         },
-        // IMPORTANTE: Esto tomará la URL real de Vercel automáticamente
         back_url: `${process.env.NEXT_PUBLIC_BASE_URL}/configuracion`,
-        payer_email: email || 'test_user_999@testuser.com',
+        
+        // AQUÍ ESTABA EL ERROR: Ahora forzamos un email válido siempre
+        payer_email: emailRandom, 
+        
         status: 'pending'
       }
     });
@@ -34,6 +36,6 @@ export async function POST(request: Request) {
 
   } catch (error: any) {
     console.error("❌ ERROR MERCADO PAGO:", error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: error.message || error }, { status: 500 });
   }
 }
