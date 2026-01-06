@@ -10,9 +10,6 @@ export async function POST(request: Request) {
   try {
     const preapproval = new PreApproval(client);
 
-    // Generamos un email aleatorio para evitar error de usuario duplicado
-    const emailRandom = `test_user_${Math.floor(Math.random() * 10000)}@testuser.com`;
-
     const result = await preapproval.create({
       body: {
         reason: "Suscripción Plan Full - Snappy",
@@ -21,11 +18,12 @@ export async function POST(request: Request) {
           frequency_type: 'months',
           transaction_amount: 5000,
           currency_id: 'ARS'
-        }, // <--- AQUÍ SE CIERRA auto_recurring
-
-        // Estas opciones van AFUERA de auto_recurring, pero DENTRO de body:
+        },
         back_url: 'https://mi-tienda-kappa.vercel.app/configuracion',
-        payer_email: emailRandom,
+        
+        // 👇 PEGA AQUÍ EL EMAIL QUE ACABAS DE CREAR EN EL PANEL (NO inventes uno)
+        payer_email: 'TESTUSER2557599897225491145git', 
+        
         status: 'pending'
       }
     });
