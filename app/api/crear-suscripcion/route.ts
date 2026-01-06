@@ -10,8 +10,6 @@ export async function POST(request: Request) {
   try {
     const preapproval = new PreApproval(client);
 
-    // Creamos la suscripción SIN forzar el email del usuario.
-    // Dejamos que Mercado Pago se encargue de pedirlo en el Checkout.
     const result = await preapproval.create({
       body: {
         reason: "Suscripción Plan Full - Snappy",
@@ -21,7 +19,11 @@ export async function POST(request: Request) {
           transaction_amount: 5000,
           currency_id: 'ARS'
         },
-        back_url: 'https://mi-tienda-kappa.vercel.app/configuracion'
+        back_url: 'https://mi-tienda-kappa.vercel.app/configuracion',
+        
+        // El email es obligatorio (Error 400), así que lo ponemos.
+        // Quitamos "status: pending" porque eso causaba el Error 500.
+        payer_email: 'test_user_3116437723@testuser.com'
       }
     });
 
@@ -29,7 +31,6 @@ export async function POST(request: Request) {
 
   } catch (error: any) {
     console.error("❌ ERROR MERCADO PAGO:", error);
-    // Si falla, devolvemos el mensaje exacto para ver si nos pide el email
     return NextResponse.json({ error: error.message || error }, { status: 500 });
   }
 }
