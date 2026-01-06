@@ -1,141 +1,99 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { supabase } from '@/lib/supabaseClient'; // Asegúrate de haber creado este archivo en el paso anterior
+import { useState, useEffect, Suspense } from 'react'; // <--- IMPORTANTE: Suspense
 import { useRouter, useSearchParams } from 'next/navigation';
-import Link from 'next/link';
+import { supabase } from '@/lib/supabaseClient';
 
-export default function AuthPage() {
+// 1. CREAMOS UN COMPONENTE INTERNO CON LA LÓGICA (Lo que antes era tu página)
+function AuthContent() {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  
-  // Si en la URL viene ?mode=signup, mostramos registro. Si no, login.
-  const [isSignUp, setIsSignUp] = useState(false);
-  
+  const searchParams = useSearchParams(); // Esto es lo que causaba el error sin Suspense
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [isLogin, setIsLogin] = useState(true);
 
+  // Efecto para leer errores de la URL (si los hubiera)
   useEffect(() => {
-    if (searchParams.get('mode') === 'signup') setIsSignUp(true);
+    const error = searchParams.get('error');
+    if (error) alert('Error de autenticación: ' + error);
   }, [searchParams]);
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    setError(null);
-
+    
     try {
-      if (isSignUp) {
-        // --- REGISTRO ---
-        const { data, error } = await supabase.auth.signUp({
-          email,
-          password,
-        });
+      if (isLogin) {
+        const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
-        
-        // Si se registra bien, creamos su perfil en la tabla 'profiles' (la que creamos en SQL)
-        if (data.user) {
-             /* NOTA: Supabase a veces tarda un milisegundo en crear el user auth.
-                Idealmente esto se hace con "Triggers" en la base de datos, 
-                pero para empezar lo haremos aquí manual.
-             */
-             await supabase.from('profiles').insert([
-                 { id: data.user.id, email: email, plan_type: 'trial', role: 'user' }
-             ]);
-             
-             // También le creamos una tienda por defecto vacía
-             await supabase.from('shops').insert([
-                 { owner_id: data.user.id, slug: `tienda-${Date.now()}`, nombre_negocio: 'Mi Tienda Snappy' }
-             ]);
-        }
-
-        alert('¡Cuenta creada! Revisa tu correo para confirmar o inicia sesión.');
-        setIsSignUp(false); // Pasamos a login
-      } else {
-        // --- LOGIN ---
-        const { error } = await supabase.auth.signInWithPassword({
-          email,
-          password,
-        });
-        if (error) throw error;
-        
-        // Si entra bien, lo mandamos al panel
         router.push('/admin');
+      } else {
+        const { error } = await supabase.auth.signUp({ 
+            email, 
+            password,
+            options: { emailRedirectTo: `${location.origin}/auth/callback` }
+        });
+        if (error) throw error;
+        alert('Revisa tu email para confirmar la cuenta.');
       }
-    } catch (err: any) {
-      setError(err.message);
+    } catch (error: any) {
+      alert(error.message);
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', backgroundColor: '#f4f6f9', fontFamily: 'sans-serif' }}>
-      
-      {/* Logo Snappy */}
-      <div style={{ marginBottom: 30, textAlign: 'center' }}>
-         <div style={{ fontSize: '40px' }}>⚡</div>
-         <h1 style={{ margin: '10px 0', color: '#2c3e50', fontWeight: 800 }}>Snappy</h1>
-      </div>
-
-      <div style={{ background: 'white', padding: '40px', borderRadius: '16px', boxShadow: '0 10px 30px rgba(0,0,0,0.05)', width: '100%', maxWidth: '400px' }}>
+    <div style={{ display: 'flex', height: '100vh', alignItems: 'center', justifyContent: 'center', background: '#f0f2f5' }}>
+      <div style={{ background: 'white', padding: 40, borderRadius: 10, boxShadow: '0 4px 6px rgba(0,0,0,0.1)', width: '100%', maxWidth: 400 }}>
+        <h1 style={{ textAlign: 'center', marginBottom: 20, color: '#333' }}>{isLogin ? 'Iniciar Sesión' : 'Registrarse'}</h1>
         
-        <h2 style={{ margin: '0 0 20px 0', color: '#333', textAlign: 'center' }}>
-          {isSignUp ? 'Crear cuenta gratis' : 'Bienvenido de nuevo'}
-        </h2>
-
-        {error && (
-            <div style={{background:'#ffebee', color:'#c62828', padding:'10px', borderRadius:'8px', fontSize:'13px', marginBottom:'20px', textAlign:'center'}}>
-                {error}
-            </div>
-        )}
-
-        <form onSubmit={handleAuth} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-          <div>
-            <label style={{ display: 'block', marginBottom: '5px', fontSize: '12px', fontWeight: 'bold', color: '#7f8c8d' }}>EMAIL</label>
-            <input 
-                type="email" required 
-                value={email} onChange={(e) => setEmail(e.target.value)}
-                style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '14px', outline: 'none' }}
-                placeholder="ejemplo@correo.com"
-            />
-          </div>
-
-          <div>
-            <label style={{ display: 'block', marginBottom: '5px', fontSize: '12px', fontWeight: 'bold', color: '#7f8c8d' }}>CONTRASEÑA</label>
-            <input 
-                type="password" required 
-                value={password} onChange={(e) => setPassword(e.target.value)}
-                style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '14px', outline: 'none' }}
-                placeholder="••••••••"
-            />
-          </div>
-
+        <form onSubmit={handleAuth} style={{ display: 'flex', flexDirection: 'column', gap: 15 }}>
+          <input 
+            type="email" 
+            placeholder="Email" 
+            value={email} 
+            onChange={(e) => setEmail(e.target.value)} 
+            required 
+            style={{ padding: 10, borderRadius: 5, border: '1px solid #ddd' }}
+          />
+          <input 
+            type="password" 
+            placeholder="Contraseña" 
+            value={password} 
+            onChange={(e) => setPassword(e.target.value)} 
+            required 
+            style={{ padding: 10, borderRadius: 5, border: '1px solid #ddd' }}
+          />
           <button 
-            type="submit" disabled={loading}
-            style={{ 
-                marginTop: '10px', padding: '15px', borderRadius: '8px', border: 'none', 
-                background: '#3498db', color: 'white', fontWeight: 'bold', cursor: loading ? 'not-allowed' : 'pointer', fontSize: '15px',
-                opacity: loading ? 0.7 : 1
-            }}>
-            {loading ? 'Procesando...' : (isSignUp ? 'Registrarme en Snappy' : 'Iniciar Sesión')}
+            type="submit" 
+            disabled={loading}
+            style={{ padding: 10, borderRadius: 5, border: 'none', background: '#3498db', color: 'white', fontWeight: 'bold', cursor: 'pointer' }}
+          >
+            {loading ? 'Cargando...' : (isLogin ? 'Entrar' : 'Registrarse')}
           </button>
         </form>
 
-        <div style={{ marginTop: '20px', textAlign: 'center', fontSize: '14px', color: '#7f8c8d' }}>
-          {isSignUp ? '¿Ya tienes cuenta?' : '¿Aún no tienes cuenta?'}
+        <p style={{ textAlign: 'center', marginTop: 20, fontSize: 14 }}>
+          {isLogin ? '¿No tienes cuenta?' : '¿Ya tienes cuenta?'}
           <span 
-            onClick={() => { setIsSignUp(!isSignUp); setError(null); }}
-            style={{ color: '#3498db', fontWeight: 'bold', cursor: 'pointer', marginLeft: '5px' }}>
-            {isSignUp ? 'Ingresar' : 'Crear cuenta'}
+            onClick={() => setIsLogin(!isLogin)} 
+            style={{ color: '#3498db', cursor: 'pointer', marginLeft: 5, fontWeight: 'bold' }}
+          >
+            {isLogin ? 'Regístrate' : 'Inicia Sesión'}
           </span>
-        </div>
-
+        </p>
       </div>
-      
-      <Link href="/" style={{marginTop: 30, color:'#999', fontSize:13, textDecoration:'none'}}>← Volver al inicio</Link>
     </div>
+  );
+}
+
+// 2. EXPORTAMOS LA PÁGINA "ENVUELTA" EN SUSPENSE
+export default function AuthPage() {
+  return (
+    <Suspense fallback={<div style={{display:'flex', justifyContent:'center', marginTop:50}}>Cargando autenticación...</div>}>
+      <AuthContent />
+    </Suspense>
   );
 }
