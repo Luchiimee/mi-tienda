@@ -19,10 +19,11 @@ export async function POST(request: Request) {
           transaction_amount: 5000,
           currency_id: 'ARS'
         },
+        // Tu URL real de Vercel
         back_url: 'https://mi-tienda-kappa.vercel.app/configuracion',
         
-        // 👇 PEGA AQUÍ EL EMAIL QUE ACABAS DE CREAR EN EL PANEL (NO inventes uno)
-        payer_email: 'TESTUSER2557599897225491145git', 
+        // 👇 AQUÍ ESTÁ EL EMAIL CORRECTO ARMADO CON TU ID DE LA FOTO
+        payer_email: 'test_user_3116437723@testuser.com', 
         
         status: 'pending'
       }
