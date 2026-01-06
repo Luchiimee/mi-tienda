@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { MercadoPagoConfig, PreApproval } from 'mercadopago';
+import { MercadoPagoConfig, Preference } from 'mercadopago'; // ⚠️ Fíjate que importamos Preference
 
 const client = new MercadoPagoConfig({ 
   accessToken: process.env.MP_ACCESS_TOKEN!, 
@@ -8,25 +8,31 @@ const client = new MercadoPagoConfig({
 
 export async function POST(request: Request) {
   try {
-    const preapproval = new PreApproval(client);
+    // Usamos Preference (Checkout estándar) en lugar de PreApproval.
+    // Esto es mucho más robusto y NO da error 500 por emails.
+    const preference = new Preference(client);
 
-    const result = await preapproval.create({
+    const result = await preference.create({
       body: {
-        reason: "Suscripción Plan Full - Snappy",
-        auto_recurring: {
-          frequency: 1,
-          frequency_type: 'months',
-          transaction_amount: 5000,
-          currency_id: 'ARS'
+        items: [
+          {
+            id: 'plan-full-mensual',
+            title: 'Suscripción Plan Full (30 días)', // El título que verá el usuario
+            quantity: 1,
+            unit_price: 5000 // Precio
+          }
+        ],
+        // Configuración de redirección (A donde vuelve el usuario)
+        back_urls: {
+          success: 'https://mi-tienda-kappa.vercel.app/configuracion',
+          failure: 'https://mi-tienda-kappa.vercel.app/configuracion',
+          pending: 'https://mi-tienda-kappa.vercel.app/configuracion'
         },
-        back_url: 'https://mi-tienda-kappa.vercel.app/configuracion',
-        
-        // El email es obligatorio (Error 400), así que lo ponemos.
-        // Quitamos "status: pending" porque eso causaba el Error 500.
-        payer_email: 'test_user_3116437723@testuser.com'
+        auto_return: 'approved',
       }
     });
 
+    console.log("✅ Link generado:", result.init_point);
     return NextResponse.json({ url: result.init_point });
 
   } catch (error: any) {
