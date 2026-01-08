@@ -419,3 +419,72 @@ hr { width: 100%; border: none; border-top: 1px solid var(--card-bg); margin: 10
 .no-scrollbar::-webkit-scrollbar { 
     display: none;  /* Safari and Chrome */
 }
+/* --- LAYOUT PRINCIPAL --- */
+.contenedor-layout {
+  display: flex;
+  width: 100%;
+  min-height: 100vh;
+  position: relative;
+  background-color: #f8fafc; /* Fondo general */
+}
+
+/* --- SIDEBAR (BARRA LATERAL) --- */
+.sidebar {
+  width: 360px;       /* Ancho fijo ideal */
+  min-width: 260px;   /* 🛑 ESTO ES CLAVE: Impide que se aplaste */
+  background: #1e293b; /* Color oscuro profesional */
+  color: white;
+  height: 100vh;      /* Ocupa toda la altura */
+  position: sticky;   /* Se queda pegado al scrollear */
+  top: 0;
+  left: 0;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 4px 0 10px rgba(0,0,0,0.05);
+  overflow-y: auto;   /* Si el menú es muy alto, scrollea */
+  z-index: 50;
+}
+
+/* --- CONTENIDO PRINCIPAL --- */
+.main-content {
+  flex: 1;            /* Toma todo el espacio restante */
+  min-width: 0;       /* Evita desbordes de grilla */
+  overflow-y: auto;
+}
+
+/* --- ESTILOS RESPONSIVE (CELULAR/TABLET) --- */
+@media (max-width: 768px) {
+  .contenedor-layout {
+    flex-direction: column; /* Pone el sidebar arriba del contenido */
+  }
+
+  .sidebar {
+    width: 100%;        /* Ocupa todo el ancho en celular */
+    min-width: 0;
+    height: auto;       /* Altura automática */
+    position: relative; /* Ya no es sticky */
+    padding: 15px;
+  }
+
+  /* Ajuste para que los items del sidebar se vean mejor en móvil */
+  .sidebar nav ul {
+    display: flex;
+    justify-content: space-around; /* Iconos distribuidos */
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  
+  .sidebar nav ul li {
+    background: rgba(255,255,255,0.1);
+    border-radius: 8px;
+    padding: 5px 10px;
+  }
+
+  .sidebar .ajustes-sidebar {
+    background: rgba(0,0,0,0.2);
+    margin-top: 15px;
+    border-radius: 8px;
+    padding: 10px;
+  }
+}

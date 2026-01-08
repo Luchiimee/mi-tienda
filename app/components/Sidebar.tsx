@@ -80,7 +80,8 @@ export default function Sidebar({ activeTab = 'personalizar' }: SidebarProps) {
     setIndexEditando(shopData.productos.length); 
   };
   const templates = [ { id: 'tienda', icon: '🛒', label: 'Tienda' }, { id: 'catalogo', icon: '📖', label: 'Catálogo' }, { id: 'menu', icon: '🍔', label: 'Menú' }, { id: 'personal', icon: '👤', label: 'Personal' } ];
-
+// Prioridad: 1. El logo específico de esta plantilla (tienda/menu/etc). 2. El logo visual actual. 3. Nada.
+const currentLogo = shopData.logos?.[shopData.template] || shopData.logo;
   return (
     <aside className="sidebar">
       <div style={{marginBottom: 20}}>

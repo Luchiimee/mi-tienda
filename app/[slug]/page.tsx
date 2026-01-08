@@ -24,16 +24,21 @@ export default function PublicShopPage({ params }: { params: Promise<{ slug: str
 
   useEffect(() => {
     const fetchShopData = async () => {
+      // Buscamos si el slug coincide con ALGUNA de las columnas de slugs
       const { data: shops, error } = await supabase.from('shops').select('*').or(`slug_tienda.eq.${slug},slug_catalogo.eq.${slug},slug_menu.eq.${slug},slug_personal.eq.${slug},slug.eq.${slug}`);
       if (error || !shops || shops.length === 0) { setLoading(false); return; }
       
       const shopData = shops[0];
-      let detectedTemplate = shopData.template;
+      
+      // DETECTAR QUÉ PLANTILLA ES SEGÚN EL LINK QUE SE USÓ
+      let detectedTemplate = shopData.template; // Fallback al default
+      
       if (shopData.slug_menu === slug) detectedTemplate = 'menu';
       else if (shopData.slug_tienda === slug) detectedTemplate = 'tienda';
       else if (shopData.slug_catalogo === slug) detectedTemplate = 'catalogo';
       else if (shopData.slug_personal === slug) detectedTemplate = 'personal';
       
+      // Forzamos la plantilla detectada para renderizar correctamente
       shopData.template = detectedTemplate; 
       setShop(shopData);
       
@@ -71,7 +76,6 @@ export default function PublicShopPage({ params }: { params: Promise<{ slug: str
     window.open(`https://wa.me/${shop.whatsapp}?text=${mensaje}`, '_blank');
   };
 
-  // --- ABRIR GALERÍA (SOLO TIENDA Y CATALOGO) ---
   const openGallery = (p: any) => {
       if (shop.template === 'tienda' || shop.template === 'catalogo') {
           setViewingProduct(p);
@@ -91,6 +95,28 @@ export default function PublicShopPage({ params }: { params: Promise<{ slug: str
   const accentColor = isDark ? '#5dade2' : '#3498db';
   const isGrid = shop.template === 'tienda' || shop.template === 'catalogo' || shop.template === 'menu';
 
+  // 👇 LÓGICA CORREGIDA DE LOGOS PARA PLAN FULL
+  const currentLogo = (() => {
+      let specificLogo = null;
+      
+      // 1. Buscamos el logo específico
+      if (shop.template === 'tienda') specificLogo = shop.logo_tienda;
+      if (shop.template === 'catalogo') specificLogo = shop.logo_catalogo;
+      if (shop.template === 'menu') specificLogo = shop.logo_menu;
+      if (shop.template === 'personal') specificLogo = shop.logo_personal;
+
+      // 2. Si existe, lo usamos
+      if (specificLogo) return specificLogo;
+
+      // 3. AQUÍ ESTÁ EL ARREGLO:
+      // Si estamos en Plan Full, NO usamos el logo genérico si falta el específico.
+      // Preferimos devolver null para que se muestre el emoji por defecto.
+      if (shop.plan === 'full') return null;
+
+      // 4. Solo si es Plan Simple (o fallback legacy) usamos logo_url
+      return shop.logo_url;
+  })();
+
   const getPersonalStyle = (theme: string) => {
     const base = { display:'block', padding: '16px', borderRadius: '50px', fontWeight: 'bold', fontSize: '15px', textAlign: 'center' as const, marginBottom: '0px', textDecoration: 'none', border: 'none', boxShadow: '0 4px 6px rgba(0,0,0,0.1)', transition: 'transform 0.1s ease', color: 'white', background: accentColor };
     if (theme === 'neon') return { ...base, background: '#000', color: '#0f0', border: '2px solid #0f0', boxShadow: '0 0 15px #0f0' };
@@ -106,8 +132,13 @@ export default function PublicShopPage({ params }: { params: Promise<{ slug: str
           {/* HEADER */}
           <div style={{ padding: '40px 20px 20px 20px', textAlign: 'center' }}>
               <div style={{ width: 80, height: 80, borderRadius: '50%', background: '#fff', margin: '0 auto 10px', overflow:'hidden', border: '2px solid #ff9f43', padding: 2 }}>
-                  <div style={{width:'100%', height:'100%', borderRadius:'50%', overflow:'hidden'}}>
-                     {shop.logo_url ? <img src={shop.logo_url} style={{width:'100%', height:'100%', objectFit:'cover'}}/> : <span style={{fontSize:40, lineHeight:'70px'}}>😎</span>}
+                  <div style={{width:'100%', height:'100%', borderRadius:'50%', overflow:'hidden', display:'flex', alignItems:'center', justifyContent:'center'}}>
+                      {/* Si hay currentLogo, muestra img. Si no (null), muestra el emoji 😎 */}
+                      {currentLogo ? (
+                          <img src={currentLogo} style={{width:'100%', height:'100%', objectFit:'cover'}}/>
+                      ) : (
+                          <span style={{fontSize:40}}>😎</span>
+                      )}
                   </div>
               </div>
               <h1 style={{ margin: 0, fontSize: 22, color: text, fontWeight: 'bold' }}>{shop.nombre_negocio}</h1>
@@ -142,7 +173,7 @@ export default function PublicShopPage({ params }: { params: Promise<{ slug: str
                       <div key={p.id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', backgroundColor: cardBg, boxShadow: '1px 1px 3px 1px #9d9d9d5e', width: '100%', gap: 10, borderRadius: 12, overflow: 'hidden' }}>
                           <div 
                             style={{ width: '100%', height: 250, background: 'white', cursor: 'pointer' }}
-                            onClick={() => openGallery(p)} // ABRIR GALERIA AL CLICK
+                            onClick={() => openGallery(p)} 
                           >
                                {imgUrl ? (
                                    <img src={imgUrl} style={{ width: '100%', height: '100%', objectFit: 'cover' }}/>
@@ -221,7 +252,6 @@ export default function PublicShopPage({ params }: { params: Promise<{ slug: str
                   background: 'rgba(0,0,0,0.95)', zIndex: 9999, 
                   display: 'flex', flexDirection: 'column', justifyContent: 'center'
               }}>
-                  {/* Botón cerrar */}
                   <button 
                     onClick={() => setViewingProduct(null)}
                     style={{position:'absolute', top: 20, right: 20, background:'rgba(255,255,255,0.2)', color:'white', border:'none', fontSize:20, borderRadius:'50%', width:40, height:40, cursor:'pointer', zIndex:10000}}
@@ -236,11 +266,10 @@ export default function PublicShopPage({ params }: { params: Promise<{ slug: str
                       gap: 20,
                       padding: '0 20px'
                   }}>
-                      {/* Renderizar todas las fotos de la galería (o la principal si no hay galería) */}
                       {(() => {
                           const images = (viewingProduct.galeria && viewingProduct.galeria.length > 0) 
-                                         ? viewingProduct.galeria 
-                                         : (viewingProduct.imagen_url ? [viewingProduct.imagen_url] : []);
+                                                      ? viewingProduct.galeria 
+                                                      : (viewingProduct.imagen_url ? [viewingProduct.imagen_url] : []);
                           
                           if (images.length === 0) return <div style={{color:'white', width:'100%', textAlign:'center'}}>Sin imágenes</div>;
 
@@ -258,14 +287,11 @@ export default function PublicShopPage({ params }: { params: Promise<{ slug: str
                           ));
                       })()}
                   </div>
-                  
-                  {/* Indicador de Swipe */}
                   <div style={{textAlign:'center', color:'rgba(255,255,255,0.5)', marginTop:20, fontSize:12}}>
                       {(viewingProduct.galeria && viewingProduct.galeria.length > 1) ? 'Desliza para ver más →' : viewingProduct.titulo}
                   </div>
               </div>
           )}
-
       </div>
     </div>
   );
