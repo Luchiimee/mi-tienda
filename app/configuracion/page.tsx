@@ -16,10 +16,10 @@ export default function ConfiguracionPage() {
   const [loadingPago, setLoadingPago] = useState(false);
   const [editingSlugs, setEditingSlugs] = useState<{[key:string]: string}>({});
   
-  // Estado para SELECCIONAR qué plan quiere pagar (por defecto el Full o el que tenga)
+  // Estado para SELECCIONAR qué plan quiere pagar (por defecto Full o el que tenga)
   const [selectedPlan, setSelectedPlan] = useState<'simple' | 'full'>('full');
 
-  // --- PRECIOS ACTUALIZADOS ---
+  // --- PRECIOS FINALES ---
   const PRECIO_SIMPLE = 15200;
   const PRECIO_FULL = 20100;
 
@@ -33,7 +33,7 @@ export default function ConfiguracionPage() {
 
   useEffect(() => { setEditingSlugs(shopData.slugs); }, [shopData.slugs]);
   
-  // Sincronizar selección inicial con el plan actual del usuario
+  // Sincronizar selección inicial
   useEffect(() => {
       if (shopData.plan === 'simple') setSelectedPlan('simple');
       else setSelectedPlan('full');
@@ -57,7 +57,7 @@ export default function ConfiguracionPage() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 email: shopData.email,
-                plan: selectedPlan, // Usamos el plan seleccionado en la UI
+                plan: selectedPlan,
                 shopId: shopData.id,
                 price: priceToPay
             }),
@@ -65,14 +65,19 @@ export default function ConfiguracionPage() {
 
         const data = await response.json();
         
+        // Manejo de errores más robusto
+        if (!response.ok) {
+            throw new Error(data.error || 'Error en el servidor de pagos');
+        }
+        
         if (data.url) {
             window.location.href = data.url;
         } else {
-            alert('Error al generar el pago. Intenta nuevamente.');
+            alert('No se recibió el link de pago.');
         }
-      } catch (error) {
+      } catch (error: any) {
           console.error(error);
-          alert('Error de conexión.');
+          alert(`Error: ${error.message}`);
       } finally {
           setLoadingPago(false);
       }
@@ -192,7 +197,7 @@ export default function ConfiguracionPage() {
                 )}
             </div>
 
-            {/* 2. CARD DE PLANES (REDISEÑADA PARA PAGO) */}
+            {/* 2. CARD PLANES (DISEÑO SOLICITADO) */}
             <div style={{ background: 'white', padding: 30, borderRadius: 16, boxShadow: '0 4px 20px rgba(0,0,0,0.03)', border:'1px solid #f1f5f9', display:'flex', flexDirection:'column' }}>
                 <h3 style={{ marginTop: 0, fontSize: 16, color: '#334155', display:'flex', alignItems:'center', gap:8, marginBottom:20 }}>
                     💳 <span style={{fontWeight:'bold'}}>Planes</span>
@@ -245,7 +250,7 @@ export default function ConfiguracionPage() {
                     </div>
                 </div>
 
-                {/* INFO DE COBRO Y BOTÓN DE PAGO FUERA DE LAS CARDS */}
+                {/* INFO Y BOTÓN DE PAGO (FUERA DE LOS RECUADROS) */}
                 <div style={{marginTop:'auto', paddingTop:15, borderTop:'1px dashed #e2e8f0'}}>
                     <p style={{margin:'0 0 10px 0', fontSize:11, color:'#64748b', textAlign:'center'}}>
                         📅 Se cobrará automáticamente cada 30 días.<br/>
@@ -256,16 +261,17 @@ export default function ConfiguracionPage() {
                         disabled={loadingPago}
                         style={{
                             width: '100%', padding: 12, borderRadius: 8, border: 'none',
-                            background: '#009ee3', color: 'white', fontWeight: 'bold', fontSize: 14,
+                            background: '#5a99fa', color: 'white', fontWeight: 'bold', fontSize: 14,
                             cursor: loadingPago ? 'not-allowed' : 'pointer',
-                            opacity: loadingPago ? 0.7 : 1, display:'flex', alignItems:'center', justifyContent:'center', gap:8
+                            opacity: loadingPago ? 0.7 : 1, display:'flex', alignItems:'center', justifyContent:'center', gap:8,
+                            boxShadow: '0 4px 10px rgba(90, 153, 250, 0.3)'
                         }}
                     >
                         {loadingPago ? 'Generando link...' : `Suscripción ${selectedPlan.toUpperCase()} (Mercado Pago)`}
                     </button>
                 </div>
 
-                {/* SELECTOR DE PLANTILLA (SOLO SI ES SIMPLE Y NO ELIGIÓ AÚN) */}
+                {/* SELECTOR DE PLANTILLA (SOLO SI ES SIMPLE) */}
                 {shopData.plan === 'simple' && (
                     <div style={{ marginTop: 20, padding: 15, background: '#fff7ed', borderRadius: 8, border: '1px solid #fed7aa' }}>
                         <label style={{ display:'block', fontSize: 12, color: '#9a3412', fontWeight:'bold', marginBottom:8 }}>ELIGE TU PLANTILLA ÚNICA:</label>
