@@ -12,11 +12,10 @@ export default function PublicShopPage({ params }: { params: Promise<{ slug: str
   const [carrito, setCarrito] = useState<{[key: string]: number}>({});
   const [busqueda, setBusqueda] = useState('');
   
-  // --- ESTADO PARA EL MODAL (LIGHTBOX) ---
+  // Modal
   const [viewingProduct, setViewingProduct] = useState<any | null>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
 
-  // Parseo seguro de galería
   const parseGallery = (galleryData: any) => {
       if (!galleryData) return [];
       if (Array.isArray(galleryData)) return galleryData;
@@ -53,10 +52,7 @@ export default function PublicShopPage({ params }: { params: Promise<{ slug: str
           .order('created_at', { ascending: true });
       
       if (prodData) {
-          const cleanProducts = prodData.map(p => ({
-              ...p,
-              galeria: parseGallery(p.galeria)
-          }));
+          const cleanProducts = prodData.map(p => ({ ...p, galeria: parseGallery(p.galeria) }));
           setProducts(cleanProducts);
       }
       setLoading(false);
@@ -76,7 +72,7 @@ export default function PublicShopPage({ params }: { params: Promise<{ slug: str
   const total = products.reduce((acc, p) => acc + (parseFloat(p.precio) || 0) * (carrito[p.id] || 0), 0);
   const cantidadTotal = Object.values(carrito).reduce((a, b) => a + b, 0);
 
-  // --- SELECCIÓN DE DATOS SEGÚN PLANTILLA ---
+  // --- OBTENER DATOS ESPECÍFICOS ---
   const currentName = shop ? (() => {
       if (shop.template === 'tienda') return shop.nombre_tienda || shop.nombre_negocio;
       if (shop.template === 'catalogo') return shop.nombre_catalogo || shop.nombre_negocio;
@@ -93,18 +89,29 @@ export default function PublicShopPage({ params }: { params: Promise<{ slug: str
       return shop.descripcion;
   })() : '';
 
-  const currentWhatsapp = shop ? (() => {
-      if (shop.template === 'tienda') return shop.whatsapp_tienda || shop.whatsapp;
-      if (shop.template === 'catalogo') return shop.whatsapp_catalogo || shop.whatsapp;
-      if (shop.template === 'menu') return shop.whatsapp_menu || shop.whatsapp;
-      if (shop.template === 'personal') return shop.whatsapp_personal || ''; 
-      return shop.whatsapp;
-  })() : '';
-
+  // --- LÓGICA WHATSAPP CORREGIDA ---
   const handleWhatsApp = () => {
-    if(!shop || !currentWhatsapp) return alert("Esta tienda no tiene WhatsApp configurado.");
+    if(!shop) return;
+
+    // 1. Detectar el número según la plantilla actual
+    let rawPhone = '';
+    if (shop.template === 'tienda') rawPhone = shop.whatsapp_tienda || shop.whatsapp;
+    else if (shop.template === 'catalogo') rawPhone = shop.whatsapp_catalogo || shop.whatsapp;
+    else if (shop.template === 'menu') rawPhone = shop.whatsapp_menu || shop.whatsapp;
+    else if (shop.template === 'personal') rawPhone = shop.whatsapp_personal || '';
+
+    // 2. Limpiar el número (sacar espacios, guiones, paréntesis)
+    const cleanPhone = rawPhone ? rawPhone.replace(/[^\d]/g, '') : '';
+
+    if (!cleanPhone) {
+        console.log("Debug WhatsApp - Plantilla:", shop.template);
+        console.log("Debug WhatsApp - Valor Crudo:", rawPhone);
+        alert("⚠️ El WhatsApp no está configurado en esta sección. Ve al Admin > Configuración y guarda tu número.");
+        return;
+    }
     
     if (cantidadTotal === 0) { alert("⚠️ Selecciona al menos un ítem."); return; }
+
     let mensaje = `Hola *${currentName}*, me interesa:%0A`;
     products.forEach(p => { 
         if(carrito[p.id] > 0) {
@@ -113,7 +120,8 @@ export default function PublicShopPage({ params }: { params: Promise<{ slug: str
         }
     });
     if (shop.template !== 'catalogo' || total > 0) mensaje += `%0ATotal estimado: $${total}`;
-    window.open(`https://wa.me/${currentWhatsapp}?text=${mensaje}`, '_blank');
+    
+    window.open(`https://wa.me/${cleanPhone}?text=${mensaje}`, '_blank');
   };
 
   const openGallery = (p: any) => {
@@ -176,7 +184,6 @@ export default function PublicShopPage({ params }: { params: Promise<{ slug: str
     <div style={{ minHeight: '100vh', background: bgBody, fontFamily: 'sans-serif', display:'flex', justifyContent:'center' }}>
       <div style={{ width: '100%', maxWidth: '480px', background: bgApp, minHeight: '100vh', boxShadow: '0 0 20px rgba(0,0,0,0.05)', position: 'relative', paddingBottom: 100 }}>
           
-          {/* HEADER (Ahora usa currentName y currentDesc) */}
           <div style={{ padding: '40px 20px 20px 20px', textAlign: 'center' }}>
               <div style={{ width: 80, height: 80, borderRadius: '50%', background: '#fff', margin: '0 auto 10px', overflow:'hidden', border: '2px solid #ff9f43', padding: 2 }}>
                   <div style={{width:'100%', height:'100%', borderRadius:'50%', overflow:'hidden', display:'flex', alignItems:'center', justifyContent:'center'}}>
@@ -187,7 +194,6 @@ export default function PublicShopPage({ params }: { params: Promise<{ slug: str
               <p style={{ margin: '5px 0 0', fontSize: 13, color: '#888', lineHeight: 1.3 }}>{currentDesc}</p>
           </div>
 
-          {/* BUSCADOR */}
           {shop.template !== 'personal' && (
             <div style={{ padding: '0 20px', marginBottom: 25 }}>
                 <div style={{ padding: '5px 5px 5px 20px', borderRadius: 50, fontSize: 14, backgroundColor: isDark ? '#333' : '#fff', boxShadow: '0 2px 10px rgba(0,0,0,0.05)', display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -197,7 +203,6 @@ export default function PublicShopPage({ params }: { params: Promise<{ slug: str
             </div>
           )}
 
-          {/* LISTA DE PRODUCTOS */}
           <div style={{ padding: '0 20px', display: isGrid ? 'grid' : 'flex', gridTemplateColumns: isGrid ? '1fr 1fr' : 'none', flexDirection: isGrid ? 'row' : 'column', gap: 15, rowGap: shop.template === 'menu' ? 60 : 15, marginTop: 30, paddingBottom: 160 }}>
               
               {shop.template === 'personal' && productosFiltrados.map((p) => (
@@ -282,7 +287,6 @@ export default function PublicShopPage({ params }: { params: Promise<{ slug: str
           
           <div style={{textAlign:'center', marginTop: 30, paddingBottom: 100, fontSize:11, color:'#aaa'}}>Potenciado por <b>Snappy ⚡</b></div>
 
-          {/* --- MODAL GALERÍA / LIGHTBOX --- */}
           {viewingProduct && (
               <div style={{
                   position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', 
@@ -322,7 +326,6 @@ export default function PublicShopPage({ params }: { params: Promise<{ slug: str
                       )}
                   </div>
 
-                  {/* INDICADORES (PUNTITOS) */}
                   {modalImages.length > 1 && (
                       <div style={{display:'flex', justifyContent:'center', gap:8, marginTop:20, position:'absolute', bottom:'15%', width:'100%'}}>
                           {modalImages.map((_:any, i:number) => (
