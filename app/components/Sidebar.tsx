@@ -2,86 +2,140 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { useShop, Product } from '../context/ShopContext';
+import { useShop } from '../context/ShopContext';
 import { supabase } from '@/lib/supabaseClient'; 
 import { useRouter } from 'next/navigation';
+import { DOMAIN_URL } from '@/lib/constants';
 
 interface SidebarProps { activeTab?: 'personalizar' | 'productos' | 'configuracion'; }
 
 export default function Sidebar({ activeTab = 'personalizar' }: SidebarProps) {
-  const { shopData, updateConfig, updateProduct, addProduct, changeTemplate, canEdit, manualSave } = useShop();
+  const { shopData, updateConfig, updateProduct, addProduct, deleteProduct, changeTemplate, canEdit, manualSave } = useShop();
   const router = useRouter();
+  
   const [plantillasAbierto, setPlantillasAbierto] = useState(true);
   const [seccionAbierta, setSeccionAbierta] = useState<string | null>(null);
   const [indexEditando, setIndexEditando] = useState(0); 
-  const [origin, setOrigin] = useState('');
   const [uploading, setUploading] = useState(false);
+  const [draggedItemIndex, setDraggedItemIndex] = useState<number | null>(null);
 
-  const productoActivo = shopData.productos[indexEditando] || shopData.productos[0];
+  const [localGallery, setLocalGallery] = useState<string[]>([]);
 
-  useEffect(() => { if (typeof window !== 'undefined') setOrigin(window.location.origin); }, []);
+  const limitItems = shopData.template === 'personal' ? 4 : 2;
+  const productoActivo = shopData.productos[indexEditando];
+
+  useEffect(() => {
+      if (productoActivo) {
+          const savedGallery = Array.isArray(productoActivo.galeria) && productoActivo.galeria.length > 0
+              ? productoActivo.galeria 
+              : (productoActivo.imagen ? [productoActivo.imagen] : []);
+          setLocalGallery(savedGallery);
+      } else {
+          setLocalGallery([]);
+      }
+  }, [productoActivo?.id]);
+
   const togglePlantillas = () => setPlantillasAbierto(!plantillasAbierto);
   const toggleAcordeon = (seccion: string) => setSeccionAbierta(seccionAbierta === seccion ? null : seccion);
   
   const checkEdit = () => { if (!canEdit()) { if(window.confirm("⚠️ Configura tu plan primero.")) router.push('/configuracion'); return false; } return true; };
   const handleChange = (e: any) => { if (!checkEdit()) return; updateConfig({ [e.target.name]: e.target.value }); };
-  const handleProductEdit = (e: any) => { if (!checkEdit()) return; if (!productoActivo) return; updateProduct(productoActivo.id, { [e.target.name]: e.target.value }); };
   
-  // FUNCION GUARDAR
+  const handleProductEdit = (e: any) => { 
+      if (!checkEdit()) return; 
+      if (!productoActivo) return; 
+      updateProduct(productoActivo.id, { [e.target.name]: e.target.value }); 
+  };
+  
+  const handleDeleteItem = async () => {
+      if (!checkEdit()) return;
+      if (!productoActivo) return;
+      if (confirm("¿Estás seguro de eliminar este ítem?")) {
+          await deleteProduct(productoActivo.id);
+          setIndexEditando(0); 
+      }
+  };
+  
   const handleSaveClick = async () => { await manualSave(); alert("✅ ¡Guardado correctamente!"); };
-  // --- SUBIDA DE LOGO (TIENDA) ---
+
+  const copierLink = () => { 
+      if(!shopData.slug) return alert("Define un link primero"); 
+      navigator.clipboard.writeText(`${DOMAIN_URL}/${shopData.slug}`); 
+      alert('¡Link copiado!'); 
+  };
+
   const handleLogoUpload = async (e: any) => {
       if (!checkEdit()) return;
       const file = e.target.files[0];
       if (!file) return;
-      
-      // Reutilizamos el estado uploading o creamos uno local si prefieres, 
-      // por simpleza usaremos el mismo setUploading visual
       setUploading(true); 
       try {
-          const fileName = `logo-${Date.now()}.${file.name.split('.').pop()}`;
+          const fileName = `logo-${shopData.template}-${Date.now()}.${file.name.split('.').pop()}`;
           const { error: uploadError } = await supabase.storage.from('products').upload(fileName, file);
           if (uploadError) throw uploadError;
-          
           const { data: { publicUrl } } = supabase.storage.from('products').getPublicUrl(fileName);
-          
-          // Actualizamos la configuración de la tienda con la nueva URL
-          updateConfig({ logo: publicUrl });
-      } catch (error: any) {
-          alert('Error subiendo logo: ' + error.message);
-      } finally {
-          setUploading(false);
-      }
+          const finalUrl = `${publicUrl}?t=${Date.now()}`;
+          updateConfig({ logo: finalUrl });
+      } catch (error: any) { alert('Error subiendo logo: ' + error.message); } finally { setUploading(false); }
   };
 
-  const handleImageUpload = async (e: any) => {
+  const handleImageUpload = async (e: any) => { 
       if (!checkEdit() || !productoActivo) return;
-      const file = e.target.files[0]; if (!file) return;
+      const file = e.target.files[0]; 
+      if (!file) return; 
+      
       setUploading(true);
-      try {
-          const fileName = `${Date.now()}.${file.name.split('.').pop()}`;
+      try { 
+          const fileName = `prod-${Date.now()}.${file.name.split('.').pop()}`;
           const { error } = await supabase.storage.from('products').upload(fileName, file);
           if(error) throw error;
           const { data } = supabase.storage.from('products').getPublicUrl(fileName);
-          updateProduct(productoActivo.id, { imagen: data.publicUrl });
-      } catch(e:any) { alert(e.message); } finally { setUploading(false); }
+          const newUrl = data.publicUrl;
+
+          const newGallery = [...localGallery, newUrl];
+          setLocalGallery(newGallery);
+
+          updateProduct(productoActivo.id, { galeria: newGallery, imagen: newGallery[0] });
+      } catch(err: any) { alert("Error imagen: " + err.message); } finally { setUploading(false); }
+  };
+
+  const removeImage = (indexToRemove: number) => {
+      if (!checkEdit() || !productoActivo) return;
+      const newGallery = localGallery.filter((_, idx) => idx !== indexToRemove);
+      setLocalGallery(newGallery);
+      updateProduct(productoActivo.id, { galeria: newGallery, imagen: newGallery.length > 0 ? newGallery[0] : '' });
+  };
+
+  const handleDragStart = (index: number) => setDraggedItemIndex(index);
+  const handleDragOver = (e: any) => e.preventDefault();
+  const handleDrop = (targetIndex: number) => {
+      if (draggedItemIndex === null || draggedItemIndex === targetIndex) return;
+      const newGallery = [...localGallery];
+      const itemToMove = newGallery[draggedItemIndex];
+      newGallery.splice(draggedItemIndex, 1);
+      newGallery.splice(targetIndex, 0, itemToMove);
+      setLocalGallery(newGallery);
+      updateProduct(productoActivo.id, { galeria: newGallery, imagen: newGallery[0] });
+      setDraggedItemIndex(null);
   };
 
   const selectTemplate = (val: string) => { if (shopData.plan === 'simple' && shopData.templateLocked && shopData.templateLocked !== val) return; changeTemplate(val); setIndexEditando(0); };
-  const copierLink = () => { if(!shopData.slug) return alert("Define un link primero"); navigator.clipboard.writeText(`${origin}/${shopData.slug}`); alert('Copiado!'); };
   const handleLogout = async () => { await supabase.auth.signOut(); router.push('/login'); };
 
-  const limitItems = shopData.template === 'personal' ? 4 : 2;
   const agregarSiguienteProducto = () => {
     if (!checkEdit()) return;
-    if (shopData.template === 'personal' && shopData.productos.length >= 4) { alert("✋ Máximo 4 enlaces."); return; }
-    if (shopData.productos.length >= 2 && shopData.template !== 'personal') { if(confirm("¿Ir a Productos?")) router.push('/productos'); return; } 
-    addProduct({ id: Date.now().toString(), titulo: 'Nuevo', descripcion: '', precio: '', imagen: '', url: '#' }); 
+    if (shopData.productos.length >= limitItems) { 
+        if(confirm(`El Item Rápido muestra solo los primeros ${limitItems}. ¿Ir a Productos para ver todos?`)) router.push('/productos'); 
+        return; 
+    } 
+    addProduct({ id: Date.now().toString(), titulo: 'Nuevo', descripcion: '', precio: '', imagen: '', galeria: [], url: '#' }); 
     setIndexEditando(shopData.productos.length); 
   };
+
   const templates = [ { id: 'tienda', icon: '🛒', label: 'Tienda' }, { id: 'catalogo', icon: '📖', label: 'Catálogo' }, { id: 'menu', icon: '🍔', label: 'Menú' }, { id: 'personal', icon: '👤', label: 'Personal' } ];
-// Prioridad: 1. El logo específico de esta plantilla (tienda/menu/etc). 2. El logo visual actual. 3. Nada.
-const currentLogo = shopData.logos?.[shopData.template] || shopData.logo;
+  const currentLogo = shopData.logos?.[shopData.template] || shopData.logo;
+  const itemsRapidos = shopData.productos.slice(0, limitItems);
+
   return (
     <aside className="sidebar">
       <div style={{marginBottom: 20}}>
@@ -91,14 +145,30 @@ const currentLogo = shopData.logos?.[shopData.template] || shopData.logo;
       <nav style={{ marginBottom: '20px' }}>
         <ul>
           <li className={activeTab === 'personalizar' ? 'activo' : ''}><Link href="/admin" style={{ display: 'flex', alignItems: 'center', width: '100%', height: '100%', textDecoration: 'none', color: 'inherit' }}>🖌️ Personalizar</Link></li>
-          <li className={activeTab === 'productos' ? 'activo' : ''} style={{opacity: shopData.template === 'personal' ? 0.5 : 1}}><Link href="/productos" onClick={(e) => shopData.template === 'personal' && e.preventDefault()} style={{ display: 'flex', alignItems: 'center', width: '100%', height: '100%', textDecoration: 'none', color: 'inherit', cursor: shopData.template === 'personal' ? 'not-allowed' : 'pointer' }}>📦 Productos</Link></li>
+          <li className={activeTab === 'productos' ? 'activo' : ''} style={{opacity: shopData.template === 'personal' ? 0.5 : 1}}>
+              <Link 
+                href="/productos" 
+                onClick={(e) => {
+                    if(shopData.template === 'personal') {
+                        e.preventDefault();
+                        alert("⚠️ En la plantilla Personal (Links), no se usa el gestor de Productos avanzado.\n\nPuedes editar tus botones directamente desde el 'Item Rápido' aquí en el panel lateral.");
+                    }
+                }} 
+                style={{ 
+                    display: 'flex', alignItems: 'center', width: '100%', height: '100%', textDecoration: 'none', color: 'inherit', 
+                    cursor: shopData.template === 'personal' ? 'not-allowed' : 'pointer' 
+                }}
+              >
+                  📦 Productos
+              </Link>
+          </li>
           <li className={activeTab === 'configuracion' ? 'activo' : ''}><Link href="/configuracion" style={{ display: 'flex', alignItems: 'center', width: '100%', height: '100%', textDecoration: 'none', color: 'inherit' }}>⚙️ Configuración</Link></li>
         </ul>
       </nav>
 
       {activeTab === 'personalizar' && (
         <div className="ajustes-sidebar">
-          {/* PLANTILLA */}
+          {/* 1. PLANTILLA */}
           <div className={`card-ajuste ${plantillasAbierto ? 'activo' : ''}`}>
             <div className="ajuste-header" onClick={togglePlantillas}><span className="icono">🎨</span> Plantilla <span className="flecha">▼</span></div>
             <div className={`ajuste-body ${plantillasAbierto ? 'mostrar' : ''}`}>
@@ -115,84 +185,136 @@ const currentLogo = shopData.logos?.[shopData.template] || shopData.logo;
                </div>
             </div>
           </div>
-{/* DATOS */}
+          
+          {/* 2. DATOS */}
           <div className={`card-ajuste ${seccionAbierta === 'datos' ? 'activo' : ''}`}>
             <div className="ajuste-header" onClick={() => toggleAcordeon('datos')}><span className="icono">📝</span> Datos <span className="flecha">▼</span></div>
             <div className={`ajuste-body ${seccionAbierta === 'datos' ? 'mostrar' : ''}`}>
-              <label>Nombre</label><input type="text" name="nombreNegocio" value={shopData.nombreNegocio} onChange={handleChange} />
-              <label>Descripción</label><input type="text" name="descripcion" value={shopData.descripcion} onChange={handleChange} />
-              <label>WhatsApp</label><input type="text" name="whatsapp" value={shopData.whatsapp} onChange={handleChange} />
+              <label>Nombre</label><input type="text" name="nombreNegocio" value={shopData.nombreNegocio || ''} onChange={handleChange} />
+              <label>Descripción</label><input type="text" name="descripcion" value={shopData.descripcion || ''} onChange={handleChange} />
               
-              {/* --- LOGO UPLOADER --- */}
-              <div style={{marginTop: 10}}>
-                  <label style={{fontSize:11, fontWeight:'bold', color:'#7f8c8d', display:'block', marginBottom:5}}>Logo del Negocio</label>
-                  
-                  <label htmlFor="logo-upload" style={{ 
-                      display: 'flex', alignItems: 'center', justifyContent: 'center', 
-                      padding: '10px', border: '1px dashed #3498db', borderRadius: '6px', 
-                      cursor: 'pointer', color: '#3498db', fontSize: '11px', fontWeight: '500', 
-                      background: 'white', textAlign: 'center' 
-                  }}>
-                      {uploading ? '⏳ Subiendo...' : (shopData.logo ? '🔄 Cambiar Logo' : '📁 Subir Logo')}
+              {/* WHATSAPP (Oculto en Personal) */}
+              {shopData.template !== 'personal' && (
+                  <>
+                    <label>WhatsApp</label>
+                    <input type="text" name="whatsapp" value={shopData.whatsapp || ''} onChange={handleChange} placeholder="Ej: 54911..." />
+                  </>
+              )}
+              
+              {/* --- AQUÍ ESTÁ LO QUE FALTABA: SELECTOR DE TEMAS PARA 'PERSONAL' --- */}
+              {shopData.template === 'personal' && (
+                  <div style={{marginTop:15, borderTop:'1px dashed #34495e', paddingTop:10}}>
+                      <label style={{fontSize:11, fontWeight:'bold', color:'#7f8c8d', display:'block', marginBottom:5}}>Estilo de Botones</label>
+                      <div style={{display:'flex', gap:5}}>
+                          {['minimal', 'neon', 'glass'].map((theme) => (
+                              <button 
+                                key={theme}
+                                onClick={() => updateConfig({ personalTheme: theme })}
+                                style={{
+                                    flex: 1, padding: '8px', 
+                                    background: shopData.personalTheme === theme ? '#3498db' : '#ecf0f1',
+                                    color: shopData.personalTheme === theme ? 'white' : '#7f8c8d',
+                                    border: 'none', borderRadius: 4, cursor:'pointer', fontSize:11, textTransform:'capitalize'
+                                }}
+                              >
+                                  {theme}
+                              </button>
+                          ))}
+                      </div>
+                  </div>
+              )}
+
+              <div style={{marginTop: 10, borderTop:'1px dashed #34495e', paddingTop:10}}>
+                  <label style={{fontSize:11, fontWeight:'bold', color:'#7f8c8d', display:'block', marginBottom:5}}>Logo para {shopData.template}</label>
+                  <label htmlFor="logo-upload" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '10px', border: '1px dashed #3498db', borderRadius: '6px', cursor: 'pointer', color: '#3498db', fontSize: '11px', background: 'white' }}>
+                      {uploading ? '⏳...' : (currentLogo ? '🔄 Cambiar' : '📁 Subir Logo')}
                       <input id="logo-upload" type="file" accept="image/*" onChange={handleLogoUpload} style={{display:'none'}} />
                   </label>
-
-                  {shopData.logo && (
-                      <div style={{marginTop:5, display:'flex', alignItems:'center', gap:10, fontSize:10, color:'#27ae60'}}>
-                          ✅ Logo cargado:
-                          <img src={shopData.logo} style={{width:30, height:30, borderRadius:'50%', objectFit:'cover', border:'1px solid #ddd'}} />
-                      </div>
-                  )}
+                  {currentLogo && <div style={{marginTop:5, display:'flex', alignItems:'center', gap:10, fontSize:10, color:'#27ae60'}}>✅ Cargado <img src={currentLogo} style={{width:20, height:20, borderRadius:'50%', objectFit:'cover'}} /></div>}
               </div>
-              {/* --------------------- */}
-
-              {shopData.template !== 'personal' && <select name="plantillaVisual" value={shopData.plantillaVisual} onChange={handleChange} style={{marginTop:10}}><option value="Minimal">Claro</option><option value="Moderna">Oscuro</option></select>}
-              
-              {/* BOTON GUARDAR EN DATOS */}
-              <button onClick={handleSaveClick} style={{marginTop:15, width:'100%', padding:8, background:'#2c3e50', color:'white', border:'none', borderRadius:4, cursor:'pointer', fontWeight:'bold'}}>💾 Guardar Datos</button>
+              <button onClick={handleSaveClick} style={{marginTop:15, width:'100%', padding:8, background:'#2c3e50', color:'white', border:'none', borderRadius:4, cursor:'pointer', fontWeight:'bold'}}>💾 Guardar</button>
             </div>
           </div>
 
-          {/* LINK (CON BOTON GUARDAR Y COPIAR) */}
+          {/* 3. LINK */}
           <div className={`card-ajuste ${seccionAbierta === 'link' ? 'activo' : ''}`}>
-            <div className="ajuste-header" onClick={() => toggleAcordeon('link')}><span className="icono">🔗</span> Link {shopData.template} <span className="flecha">▼</span></div>
-            <div className={`ajuste-body ${seccionAbierta === 'link' ? 'mostrar' : ''}`}>
-               <div className="grupo-link" style={{flexDirection:'column', alignItems:'flex-start', gap:8, marginTop:5}}>
-                  <span className="dominio-fijo" style={{fontSize:11, color:'#7f8c8d'}}>{origin}/</span>
-                  <input type="text" name="slug" value={shopData.slug} onChange={handleChange} style={{fontWeight:'bold', color:'#3498db', width:'100%'}}/>
-               </div>
-               <div style={{display:'flex', gap:5, marginTop:10}}>
-                   <button className="btn-copiar" onClick={handleSaveClick} style={{background:'#156335ff', flex:1}}>Guardar</button>
-                   <button className="btn-copiar" onClick={copierLink} style={{flex:1}}>Copiar</button>
-               </div>
-            </div>
+             <div className="ajuste-header" onClick={() => toggleAcordeon('link')}><span className="icono">🔗</span> Link <span className="flecha">▼</span></div>
+             <div className={`ajuste-body ${seccionAbierta === 'link' ? 'mostrar' : ''}`}>
+                 <label style={{fontSize:11, fontWeight:'bold', color:'#7f8c8d'}}>Tu URL personalizada</label>
+                 <div style={{display:'flex', gap:5, marginBottom:10}}>
+                     <span style={{padding:'8px', background:'#ecf0f1', color:'#7f8c8d', borderRadius:4, fontSize:12, display:'flex', alignItems:'center'}}>snappy.uno/</span>
+                     <input type="text" name="slug" value={shopData.slug || ''} onChange={handleChange} style={{flex:1, border:'1px solid #bdc3c7', borderRadius:4, padding:5}} placeholder="mi-tienda" />
+                 </div>
+                 <div style={{display:'flex', gap:5}}>
+                     <button onClick={handleSaveClick} style={{flex:1, padding:8, background:'#2c3e50', color:'white', border:'none', borderRadius:4, cursor:'pointer', fontWeight:'bold', fontSize:12}}>💾 Guardar</button>
+                     <button onClick={copierLink} style={{padding:'8px 12px', background:'#27ae60', color:'white', border:'none', borderRadius:4, cursor:'pointer'}} title="Copiar Link">📋</button>
+                 </div>
+             </div>
           </div>
-          
-        {/* ITEM RÁPIDO */}
+
+          {/* 4. ITEM RÁPIDO */}
           <div className={`card-ajuste ${seccionAbierta === 'productos' ? 'activo' : ''}`}>
              <div className="ajuste-header" onClick={() => toggleAcordeon('productos')}><span className="icono">{shopData.template === 'personal' ? '🔗' : '📦'}</span> Item Rápido <span className="flecha">▼</span></div>
              <div className={`ajuste-body ${seccionAbierta === 'productos' ? 'mostrar' : ''}`}>
+                 
                  <div style={{display:'flex', gap:5, marginBottom:15, marginTop:5, flexWrap:'wrap', alignItems:'center'}}>
-                    {shopData.productos.slice(0, limitItems).map((_:any,i:number)=>(<button key={i} onClick={()=>setIndexEditando(i)} style={{padding:'5px', background:indexEditando===i?'#3498db':'#2c3e50', color:indexEditando===i?'white':'#bdc3c7', borderRadius:4, border:'none', fontSize:11, width:25, height:25}}>#{i+1}</button>))}
-                    <button onClick={agregarSiguienteProducto} style={{background:'#2ecc71', color:'white', border:'none', borderRadius:4, width:25, height:25, cursor:'pointer', fontWeight:'bold', fontSize:14, display:'flex', alignItems:'center', justifyContent:'center'}} title="Agregar">+</button>
+                    {itemsRapidos.map((prod: any, i: number) => (
+                        <button 
+                            key={prod.id} 
+                            onClick={() => setIndexEditando(i)} 
+                            style={{
+                                padding:'5px', 
+                                background: indexEditando === i ? '#3498db' : '#2c3e50', 
+                                color: indexEditando === i ? 'white' : '#bdc3c7', 
+                                borderRadius:4, border:'none', fontSize:11, width:25, height:25, cursor:'pointer'
+                            }}
+                        >
+                            #{i + 1}
+                        </button>
+                    ))}
+                    {shopData.productos.length < limitItems && (
+                        <button onClick={agregarSiguienteProducto} style={{background:'#2ecc71', color:'white', border:'none', borderRadius:4, width:25, height:25, cursor:'pointer', fontWeight:'bold', fontSize:14, display:'flex', alignItems:'center', justifyContent:'center'}} title="Agregar">+</button>
+                    )}
                  </div>
+
                  {productoActivo ? (
                     <div style={{display:'flex', flexDirection:'column', gap:10}}>
                         {shopData.template !== 'personal' ? (
                             <>
                                 <div><label style={{fontSize:10,fontWeight:'bold',color:'#7f8c8d'}}>Nombre</label><input type="text" name="titulo" value={productoActivo.titulo} onChange={handleProductEdit}/></div>
-                                
-                                {/* AGREGADO: CAMPO DESCRIPCIÓN */}
                                 <div><label style={{fontSize:10,fontWeight:'bold',color:'#7f8c8d'}}>Descripción</label><input type="text" name="descripcion" value={productoActivo.descripcion} onChange={handleProductEdit}/></div>
-                                
                                 <div><label style={{fontSize:10,fontWeight:'bold',color:'#7f8c8d'}}>Precio</label><input type="text" name="precio" value={productoActivo.precio} onChange={handleProductEdit}/></div>
+                                
                                 <div>
-                                    <label style={{fontSize:10,fontWeight:'bold',color:'#7f8c8d', display:'block', marginBottom:5}}>Imagen</label>
-                                    <label htmlFor={`sidebar-upload-${productoActivo.id}`} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '10px', border: '1px dashed #3498db', borderRadius: '6px', cursor: 'pointer', color: '#3498db', fontSize: '11px', fontWeight: '500', backgroundColor: uploading ? '#f0f8ff' : 'white', textAlign: 'center' }}>
-                                        {uploading ? '⏳...' : (productoActivo.imagen ? '🔄 Cambiar' : '📁 Seleccionar')}
+                                    <label style={{fontSize:10,fontWeight:'bold',color:'#7f8c8d', display:'block', marginBottom:5}}>Galería (Drag & Drop)</label>
+                                    <label htmlFor={`sidebar-upload-${productoActivo.id}`} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '10px', border: '1px dashed #3498db', borderRadius: '6px', cursor: 'pointer', color: '#3498db', fontSize: '11px', fontWeight: '500', backgroundColor: uploading ? '#f0f8ff' : 'white', textAlign: 'center', marginBottom: 10 }}>
+                                        {uploading ? '⏳...' : '📸 Agregar Foto'}
                                         <input id={`sidebar-upload-${productoActivo.id}`} type="file" accept="image/*" onChange={handleImageUpload} style={{display:'none'}} />
                                     </label>
-                                    {productoActivo.imagen && !uploading && <div style={{marginTop:5, fontSize:10, color:'#27ae60', display:'flex', alignItems:'center', gap:5}}>✅ Cargada <img src={productoActivo.imagen} style={{width:20, height:20, objectFit:'cover', borderRadius:3}} /></div>}
+
+                                    <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:10}}>
+                                        {localGallery.slice(0, 2).map((img: string, idx: number) => (
+                                            <div 
+                                                key={idx}
+                                                draggable
+                                                onDragStart={() => handleDragStart(idx)}
+                                                onDragOver={handleDragOver}
+                                                onDrop={() => handleDrop(idx)}
+                                                style={{position:'relative', width:'100%', aspectRatio:'1/1', border: idx===0 ? '3px solid #2ecc71' : '1px solid #ddd', borderRadius:8, cursor:'grab', overflow:'hidden', background:'white'}}
+                                            >
+                                                <img src={img} style={{width:'100%', height:'100%', objectFit:'cover'}} />
+                                                <button onClick={() => removeImage(idx)} style={{position:'absolute', top:5, right:5, width:20, height:20, background:'rgba(255,0,0,0.8)', color:'white', borderRadius:'50%', border:'none', fontSize:12, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', zIndex:10}}>×</button>
+                                                {idx === 0 && <div style={{position:'absolute', bottom:0, left:0, width:'100%', background:'rgba(46, 204, 113, 0.9)', color:'white', fontSize:9, textAlign:'center', fontWeight:'bold', padding:'3px 0'}}>⭐ PORTADA</div>}
+                                            </div>
+                                        ))}
+                                    </div>
+
+                                    {localGallery.length > 2 && (
+                                        <div style={{marginTop:10, padding:8, background:'#f8f9fa', borderRadius:4, fontSize:10, textAlign:'center', color:'#7f8c8d', border:'1px solid #e9ecef'}}>
+                                           Hay <b>{localGallery.length - 2}</b> foto(s) más. <br/>
+                                           <Link href="/productos" style={{color:'#3498db', fontWeight:'bold', textDecoration:'none'}}>Ver todas en Productos →</Link>
+                                        </div>
+                                    )}
                                 </div>
                             </>
                         ) : (
@@ -201,26 +323,31 @@ const currentLogo = shopData.logos?.[shopData.template] || shopData.logo;
                                 <div><label style={{fontSize:10,fontWeight:'bold',color:'#7f8c8d'}}>Link Destino</label><input type="text" name="url" value={productoActivo.url} onChange={handleProductEdit}/></div>
                             </>
                         )}
+                        
+                        {/* LINK VER MÁS (Solo si NO es personal) */}
                         {shopData.template !== 'personal' && <div style={{marginTop:5, textAlign:'center'}}><Link href="/productos" style={{fontSize:11, color:'#3498db', textDecoration:'none'}}>Ver todos los detalles →</Link></div>}
+                        
+                        {/* --- BOTÓN DE ELIMINAR ÍTEM --- */}
+                        <button 
+                            onClick={handleDeleteItem} 
+                            style={{
+                                marginTop:10, width:'100%', padding:'8px', 
+                                background:'#fee2e2', color:'#ef4444', 
+                                border:'1px solid #fca5a5', borderRadius:6, 
+                                cursor:'pointer', fontSize:'11px', fontWeight:'bold'
+                            }}
+                        >
+                            🗑️ Eliminar Ítem
+                        </button>
+
                     </div>
-                 ) : <span>Carga un ítem (+)</span>}
-                 {shopData.template === 'personal' && (
-                   <div style={{marginTop:20, borderTop:'1px solid #465f76', paddingTop:15}}>
-                       <label style={{marginBottom:10, display:'block', fontSize:11, color:'#bdc3c7'}}>Estilo de botones:</label>
-                       <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:10}}>
-                           <button onClick={() => updateConfig({personalTheme: 'glass'})} style={{background: 'linear-gradient(45deg, #667eea, #764ba2)', color:'white', padding:8, borderRadius:5, fontSize:10, border: shopData.personalTheme==='glass'?'2px solid white':'none'}}>Glass</button>
-                           <button onClick={() => updateConfig({personalTheme: 'minimal'})} style={{background: '#ecf0f1', color:'#333', padding:8, borderRadius:5, fontSize:10, border: shopData.personalTheme==='minimal'?'2px solid #3498db':'none'}}>Minimal</button>
-                           <button onClick={() => updateConfig({personalTheme: 'neon'})} style={{background: '#000', color:'#0f0', padding:8, borderRadius:5, fontSize:10, border: shopData.personalTheme==='neon'?'2px solid white':'1px solid #0f0'}}>Neon</button>
-                           <button onClick={() => updateConfig({personalTheme: 'flat'})} style={{background: '#e74c3c', color:'white', padding:8, borderRadius:5, fontSize:10, border: shopData.personalTheme==='flat'?'2px solid white':'none'}}>Flat</button>
-                       </div>
-                   </div>
-                 )}
+                 ) : <span style={{fontSize:12, color:'#95a5a6'}}>Agrega un ítem para editar.</span>}
              </div>
           </div>
         </div>
       )}
       <hr style={{margin:'20px 0', borderColor:'#34495e'}}/>
-      <div className="producto"><button><a href={`/${shopData.slug}`} target="_blank">Ver {shopData.template} →</a></button></div>
+      <div className="producto"><button><a href={`${DOMAIN_URL}/${shopData.slug}`} target="_blank">Ver {shopData.template} →</a></button></div>
       <div className="cerrar-sesion"><button onClick={handleLogout} style={{color:'#ffffffff', textAlign: 'center'}}>Salir</button></div>
     </aside>
   );

@@ -12,39 +12,64 @@ export default function PublicShopPage({ params }: { params: Promise<{ slug: str
   const [carrito, setCarrito] = useState<{[key: string]: number}>({});
   const [busqueda, setBusqueda] = useState('');
   
-  // --- ESTADO PARA LA GALERÍA (LIGHTBOX) ---
+  // --- ESTADO PARA EL MODAL (LIGHTBOX) ---
   const [viewingProduct, setViewingProduct] = useState<any | null>(null);
+  const [currentIndex, setCurrentIndex] = useState(0);
 
-  const getTipo = (tmpl: string) => {
-      if (tmpl === 'menu') return 'gastronomia';
-      if (tmpl === 'personal') return 'enlace';
-      if (tmpl === 'catalogo') return 'catalogo';
-      return 'producto';
+  // --- FUNCIÓN CLAVE: LIMPIAR LOS DATOS DE LA GALERÍA ---
+  // Esto asegura que la galería sea siempre un Array, aunque venga rara de la base de datos
+  const parseGallery = (galleryData: any) => {
+      if (!galleryData) return [];
+      if (Array.isArray(galleryData)) return galleryData;
+      if (typeof galleryData === 'string') {
+          try {
+              // Intenta convertir texto "[url1, url2]" a array real
+              return JSON.parse(galleryData);
+          } catch (e) {
+              console.error("Error parseando galería:", e);
+              return [];
+          }
+      }
+      return [];
   };
 
   useEffect(() => {
     const fetchShopData = async () => {
-      // Buscamos si el slug coincide con ALGUNA de las columnas de slugs
       const { data: shops, error } = await supabase.from('shops').select('*').or(`slug_tienda.eq.${slug},slug_catalogo.eq.${slug},slug_menu.eq.${slug},slug_personal.eq.${slug},slug.eq.${slug}`);
       if (error || !shops || shops.length === 0) { setLoading(false); return; }
       
       const shopData = shops[0];
-      
-      // DETECTAR QUÉ PLANTILLA ES SEGÚN EL LINK QUE SE USÓ
-      let detectedTemplate = shopData.template; // Fallback al default
+      let detectedTemplate = shopData.template;
       
       if (shopData.slug_menu === slug) detectedTemplate = 'menu';
       else if (shopData.slug_tienda === slug) detectedTemplate = 'tienda';
       else if (shopData.slug_catalogo === slug) detectedTemplate = 'catalogo';
       else if (shopData.slug_personal === slug) detectedTemplate = 'personal';
       
-      // Forzamos la plantilla detectada para renderizar correctamente
       shopData.template = detectedTemplate; 
       setShop(shopData);
       
-      const tipoNecesario = getTipo(detectedTemplate);
-      const { data: prodData } = await supabase.from('products').select('*').eq('shop_id', shopData.id).eq('tipo', tipoNecesario).order('created_at', { ascending: true });
-      if (prodData) setProducts(prodData);
+      const tipoMap: any = { 'menu': 'gastronomia', 'personal': 'enlace', 'catalogo': 'catalogo', 'tienda': 'producto' };
+      const tipoNecesario = tipoMap[detectedTemplate] || 'producto';
+
+      const { data: prodData } = await supabase
+          .from('products')
+          .select('*')
+          .eq('shop_id', shopData.id)
+          .eq('tipo', tipoNecesario)
+          .order('created_at', { ascending: true });
+      
+      if (prodData) {
+          // PROCESAMOS LOS DATOS AQUÍ PARA ASEGURAR QUE GALERÍA SE LEA BIEN
+          const cleanProducts = prodData.map(p => ({
+              ...p,
+              // Forzamos a que galeria sea un array limpio usando la función de arriba
+              galeria: parseGallery(p.galeria)
+          }));
+          
+          console.log("Productos procesados:", cleanProducts); // MIRA LA CONSOLA PARA VER SI AHORA SÍ SALEN LAS FOTOS
+          setProducts(cleanProducts);
+      }
       setLoading(false);
     };
     fetchShopData();
@@ -79,7 +104,15 @@ export default function PublicShopPage({ params }: { params: Promise<{ slug: str
   const openGallery = (p: any) => {
       if (shop.template === 'tienda' || shop.template === 'catalogo') {
           setViewingProduct(p);
+          setCurrentIndex(0);
       }
+  };
+
+  const handleScroll = (e: any) => {
+      const scrollLeft = e.target.scrollLeft;
+      const width = e.target.offsetWidth;
+      const index = Math.round(scrollLeft / width);
+      setCurrentIndex(index);
   };
 
   const productosFiltrados = products.filter(p => p.titulo.toLowerCase().includes(busqueda.toLowerCase()));
@@ -95,25 +128,14 @@ export default function PublicShopPage({ params }: { params: Promise<{ slug: str
   const accentColor = isDark ? '#5dade2' : '#3498db';
   const isGrid = shop.template === 'tienda' || shop.template === 'catalogo' || shop.template === 'menu';
 
-  // 👇 LÓGICA CORREGIDA DE LOGOS PARA PLAN FULL
   const currentLogo = (() => {
       let specificLogo = null;
-      
-      // 1. Buscamos el logo específico
       if (shop.template === 'tienda') specificLogo = shop.logo_tienda;
       if (shop.template === 'catalogo') specificLogo = shop.logo_catalogo;
       if (shop.template === 'menu') specificLogo = shop.logo_menu;
       if (shop.template === 'personal') specificLogo = shop.logo_personal;
-
-      // 2. Si existe, lo usamos
       if (specificLogo) return specificLogo;
-
-      // 3. AQUÍ ESTÁ EL ARREGLO:
-      // Si estamos en Plan Full, NO usamos el logo genérico si falta el específico.
-      // Preferimos devolver null para que se muestre el emoji por defecto.
       if (shop.plan === 'full') return null;
-
-      // 4. Solo si es Plan Simple (o fallback legacy) usamos logo_url
       return shop.logo_url;
   })();
 
@@ -125,6 +147,25 @@ export default function PublicShopPage({ params }: { params: Promise<{ slug: str
     return base;
   };
 
+  // --- PREPARAR IMÁGENES DEL MODAL ---
+  const getModalImages = () => {
+      if (!viewingProduct) return [];
+      
+      const gallery = viewingProduct.galeria; // Ya viene parseado gracias al useEffect
+      
+      // 1. Si hay galería, la usamos
+      if (gallery && Array.isArray(gallery) && gallery.length > 0) {
+          return gallery;
+      }
+      // 2. Si no, usamos la imagen suelta si existe
+      if (viewingProduct.imagen_url) {
+          return [viewingProduct.imagen_url];
+      }
+      return [];
+  };
+
+  const modalImages = getModalImages();
+
   return (
     <div style={{ minHeight: '100vh', background: bgBody, fontFamily: 'sans-serif', display:'flex', justifyContent:'center' }}>
       <div style={{ width: '100%', maxWidth: '480px', background: bgApp, minHeight: '100vh', boxShadow: '0 0 20px rgba(0,0,0,0.05)', position: 'relative', paddingBottom: 100 }}>
@@ -133,12 +174,7 @@ export default function PublicShopPage({ params }: { params: Promise<{ slug: str
           <div style={{ padding: '40px 20px 20px 20px', textAlign: 'center' }}>
               <div style={{ width: 80, height: 80, borderRadius: '50%', background: '#fff', margin: '0 auto 10px', overflow:'hidden', border: '2px solid #ff9f43', padding: 2 }}>
                   <div style={{width:'100%', height:'100%', borderRadius:'50%', overflow:'hidden', display:'flex', alignItems:'center', justifyContent:'center'}}>
-                      {/* Si hay currentLogo, muestra img. Si no (null), muestra el emoji 😎 */}
-                      {currentLogo ? (
-                          <img src={currentLogo} style={{width:'100%', height:'100%', objectFit:'cover'}}/>
-                      ) : (
-                          <span style={{fontSize:40}}>😎</span>
-                      )}
+                      {currentLogo ? <img src={currentLogo} style={{width:'100%', height:'100%', objectFit:'cover'}}/> : <span style={{fontSize:40}}>😎</span>}
                   </div>
               </div>
               <h1 style={{ margin: 0, fontSize: 22, color: text, fontWeight: 'bold' }}>{shop.nombre_negocio}</h1>
@@ -166,19 +202,19 @@ export default function PublicShopPage({ params }: { params: Promise<{ slug: str
                   const qty = carrito[p.id] || 0;
                   const isCatalogo = shop.template === 'catalogo';
                   const precioVacio = !p.precio || p.precio === '0';
-                  // Imagen principal
+                  // Usamos la galería parseada
                   const imgUrl = (p.galeria && p.galeria.length > 0) ? p.galeria[0] : p.imagen_url;
 
                   return (
                       <div key={p.id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', backgroundColor: cardBg, boxShadow: '1px 1px 3px 1px #9d9d9d5e', width: '100%', gap: 10, borderRadius: 12, overflow: 'hidden' }}>
-                          <div 
-                            style={{ width: '100%', height: 250, background: 'white', cursor: 'pointer' }}
-                            onClick={() => openGallery(p)} 
-                          >
-                               {imgUrl ? (
-                                   <img src={imgUrl} style={{ width: '100%', height: '100%', objectFit: 'cover' }}/>
-                               ) : (
-                                   <div style={{width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center', fontSize:40, color:'#ccc'}}>📷</div>
+                          <div style={{ width: '100%', height: 250, background: 'white', cursor: 'pointer', position: 'relative' }} onClick={() => openGallery(p)}>
+                               {imgUrl ? <img src={imgUrl} style={{ width: '100%', height: '100%', objectFit: 'cover' }}/> : <div style={{width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center', fontSize:40, color:'#ccc'}}>📷</div>}
+                               
+                               {/* Icono de múltiples fotos */}
+                               {p.galeria && p.galeria.length > 1 && (
+                                   <div style={{ position: 'absolute', top: 10, right: 10, backgroundColor: 'rgba(0,0,0,0.6)', color: '#fff', borderRadius: '12px', padding: '4px 8px', fontSize: '10px', display: 'flex', alignItems: 'center' }}>
+                                       ❐ {p.galeria.length}
+                                   </div>
                                )}
                           </div>
                           <div style={{ display: 'flex', flexDirection: 'column', padding: '0 10px 15px 10px', width: '100%', textAlign: 'left' }}>
@@ -205,9 +241,7 @@ export default function PublicShopPage({ params }: { params: Promise<{ slug: str
 
               {shop.template === 'menu' && productosFiltrados.map((p) => {
                   const qty = carrito[p.id] || 0;
-                  // Imagen principal
                   const imgUrl = (p.galeria && p.galeria.length > 0) ? p.galeria[0] : p.imagen_url;
-
                   return (
                       <div key={p.id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', backgroundColor: cardBg, boxShadow: '0 4px 15px rgba(0,0,0,0.05)', padding: '0 15px 15px 15px', borderRadius: 12, marginTop: 60, overflow: 'visible', position: 'relative', width: '100%' }}>
                           <div style={{ position: 'relative', marginTop: -50, width: '90%', maxWidth: 140, aspectRatio: '1/1', borderRadius: 12, boxShadow: '0 8px 20px rgba(0,0,0,0.15)', backgroundColor: 'white', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -228,13 +262,12 @@ export default function PublicShopPage({ params }: { params: Promise<{ slug: str
               })}
           </div>
 
-          {/* FOOTER (CARRITO) */}
           {(shop.template !== 'personal') && (
             <div style={{ position:'fixed', bottom: 0, left: '50%', transform: 'translateX(-50%)', width: '100%', maxWidth: '480px', padding: '15px 20px', background: isDark ? '#222' : 'white', borderTop: isDark ? '1px solid #444' : '1px solid #eee', display: 'flex', justifyContent: 'space-between', alignItems: 'center', zIndex: 100, boxShadow: '0 -5px 20px rgba(0,0,0,0.1)' }}>
                 <div style={{fontSize:'12px', color:'#888'}}>
                     {shop.template === 'catalogo' ? 'Seleccionados:' : 'Total:'} 
                     <span style={{color: text, fontWeight:'bold', fontSize:'15px', marginLeft: 5}}>
-                         {shop.template === 'catalogo' ? cantidadTotal : `$${total}`}
+                          {shop.template === 'catalogo' ? cantidadTotal : `$${total}`}
                     </span>
                 </div>
                 <button onClick={handleWhatsApp} style={{ background: '#25D366', color:'white', border:'none', padding:'10px 20px', borderRadius:'20px', fontWeight:'bold', fontSize:'13px', cursor: 'pointer', boxShadow: '0 4px 10px rgba(37, 211, 102, 0.3)'}}>
@@ -252,43 +285,59 @@ export default function PublicShopPage({ params }: { params: Promise<{ slug: str
                   background: 'rgba(0,0,0,0.95)', zIndex: 9999, 
                   display: 'flex', flexDirection: 'column', justifyContent: 'center'
               }}>
-                  <button 
-                    onClick={() => setViewingProduct(null)}
-                    style={{position:'absolute', top: 20, right: 20, background:'rgba(255,255,255,0.2)', color:'white', border:'none', fontSize:20, borderRadius:'50%', width:40, height:40, cursor:'pointer', zIndex:10000}}
-                  >✕</button>
+                  <button onClick={() => setViewingProduct(null)} style={{position:'absolute', top: 20, right: 20, background:'rgba(255,255,255,0.2)', color:'white', border:'none', fontSize:20, borderRadius:'50%', width:40, height:40, cursor:'pointer', zIndex:10000}}>✕</button>
 
-                  <div style={{
+                  <div 
+                    onScroll={handleScroll}
+                    style={{
                       display: 'flex', 
                       overflowX: 'auto', 
                       scrollSnapType: 'x mandatory', 
-                      height: '80%', 
+                      height: '70%', 
                       alignItems: 'center',
-                      gap: 20,
-                      padding: '0 20px'
+                      width: '100%',
+                      scrollbarWidth: 'none',
                   }}>
-                      {(() => {
-                          const images = (viewingProduct.galeria && viewingProduct.galeria.length > 0) 
-                                                      ? viewingProduct.galeria 
-                                                      : (viewingProduct.imagen_url ? [viewingProduct.imagen_url] : []);
-                          
-                          if (images.length === 0) return <div style={{color:'white', width:'100%', textAlign:'center'}}>Sin imágenes</div>;
-
-                          return images.map((img: string, idx: number) => (
+                      {modalImages.length > 0 ? (
+                          modalImages.map((img: string, idx: number) => (
                               <div key={idx} style={{
+                                  minWidth: '100%', 
                                   flex: '0 0 100%', 
                                   height: '100%', 
                                   scrollSnapAlign: 'center',
                                   display: 'flex',
                                   alignItems: 'center',
-                                  justifyContent: 'center'
+                                  justifyContent: 'center',
+                                  position: 'relative'
                               }}>
-                                  <img src={img} style={{maxHeight:'100%', maxWidth:'100%', objectFit:'contain', borderRadius:10}} />
+                                  <img src={img} style={{maxHeight:'100%', maxWidth:'100%', objectFit:'contain'}} />
                               </div>
-                          ));
-                      })()}
+                          ))
+                      ) : (
+                          <div style={{color:'white', width:'100%', textAlign:'center'}}>Sin imágenes</div>
+                      )}
                   </div>
-                  <div style={{textAlign:'center', color:'rgba(255,255,255,0.5)', marginTop:20, fontSize:12}}>
-                      {(viewingProduct.galeria && viewingProduct.galeria.length > 1) ? 'Desliza para ver más →' : viewingProduct.titulo}
+
+                  {/* INDICADORES (PUNTITOS) */}
+                  {modalImages.length > 1 && (
+                      <div style={{display:'flex', justifyContent:'center', gap:8, marginTop:20, position:'absolute', bottom:'15%', width:'100%'}}>
+                          {modalImages.map((_:any, i:number) => (
+                             <div key={i} style={{
+                                 width: 8, height: 8, borderRadius:'50%', 
+                                 background: 'white', 
+                                 opacity: currentIndex === i ? 1 : 0.3,
+                                 transition: 'opacity 0.2s'
+                             }}></div>
+                          ))}
+                      </div>
+                  )}
+
+                  <div style={{textAlign:'center', color:'white', position:'absolute', bottom:'5%', width:'100%', padding:'0 20px'}}>
+                      <div style={{fontSize:18, fontWeight:'bold'}}>{viewingProduct.titulo}</div>
+                      {/* DEBUG VISUAL: Si esto dice 1, entonces es error de datos. Si dice 3, es error de CSS */}
+                      <div style={{fontSize:12, color:'yellow', marginTop:5}}>
+                          {modalImages.length} foto(s) detectada(s)
+                      </div>
                   </div>
               </div>
           )}
