@@ -40,6 +40,11 @@ type ShopData = {
   nombres: { [key: string]: string };
   descripciones: { [key: string]: string };
   whatsapps: { [key: string]: string };
+  // --- NUEVOS CAMPOS PARA SUSCRIPCIÓN ---
+  subscription_status?: string; // 'trial', 'active', 'past_due'
+  trial_start_date?: string;
+  mp_subscription_id?: string;
+  plan_price?: number;
 };
 
 const emptyState: ShopData = {
@@ -47,7 +52,9 @@ const emptyState: ShopData = {
   nombreNegocio: '', descripcion: '', whatsapp: '', logo: '', 
   plantillaVisual: 'Minimal', personalTheme: 'glass', plan: 'none', 
   nombreDueno: '', apellidoDueno: '', templateLocked: null, lastTemplateChange: null, changeCount: 0, productos: [],
-  nombres: {}, descripciones: {}, whatsapps: {}
+  nombres: {}, descripciones: {}, whatsapps: {},
+  // Inicialización de nuevos campos
+  subscription_status: 'trial', trial_start_date: '', mp_subscription_id: '', plan_price: 0
 };
 
 const ShopContext = createContext<any>(null);
@@ -135,7 +142,13 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
         plan: shop.plan || 'none', 
         nombreDueno: shop.nombre_dueno || '', apellidoDueno: shop.apellido_dueno || '', 
         templateLocked: shop.template_locked || null, lastTemplateChange: shop.last_template_change, changeCount: shop.change_count || 0,
-        productos: items?.map(p => ({ id: p.id, titulo: p.titulo, descripcion: p.descripcion, precio: p.precio, galeria: p.galeria || [], url: p.url_destino, shop_id: p.shop_id, tipo: p.tipo, imagen: p.imagen_url })) || []
+        productos: items?.map(p => ({ id: p.id, titulo: p.titulo, descripcion: p.descripcion, precio: p.precio, galeria: p.galeria || [], url: p.url_destino, shop_id: p.shop_id, tipo: p.tipo, imagen: p.imagen_url })) || [],
+        
+        // --- MAPEO DE CAMPOS DE SUSCRIPCIÓN ---
+        subscription_status: shop.subscription_status || 'trial',
+        trial_start_date: shop.trial_start_date || shop.created_at,
+        mp_subscription_id: shop.mp_subscription_id || '',
+        plan_price: shop.plan_price || 0
       });
     }
   };

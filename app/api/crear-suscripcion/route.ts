@@ -1,38 +1,39 @@
 import { NextResponse } from 'next/server';
-import { MercadoPagoConfig, Preference } from 'mercadopago'; // ⚠️ Fíjate que importamos Preference
+import { MercadoPagoConfig, PreApproval } from 'mercadopago'; // ⚠️ CAMBIO: Usamos PreApproval (Suscripciones)
 
+// Configuración del cliente con tu Token
 const client = new MercadoPagoConfig({ 
   accessToken: process.env.MP_ACCESS_TOKEN!, 
-  options: { timeout: 5000 } 
+  options: { timeout: 10000 } 
 });
 
-export async function POST(request: Request) {
+export async function POST(req: Request) {
   try {
-    // Usamos Preference (Checkout estándar) en lugar de PreApproval.
-    // Esto es mucho más robusto y NO da error 500 por emails.
-    const preference = new Preference(client);
+    const body = await req.json();
+    const { email, plan, shopId, price } = body;
 
-    const result = await preference.create({
+    // Inicializamos la clase de Suscripciones
+    const subscription = new PreApproval(client);
+
+    // Creamos la suscripción recurrente
+    const result = await subscription.create({
       body: {
-        items: [
-          {
-            id: 'plan-full-mensual',
-            title: 'Suscripción Plan Full (30 días)', // El título que verá el usuario
-            quantity: 1,
-            unit_price: 5000 // Precio
-          }
-        ],
-        // Configuración de redirección (A donde vuelve el usuario)
-        back_urls: {
-          success: 'https://mi-tienda-kappa.vercel.app/configuracion',
-          failure: 'https://mi-tienda-kappa.vercel.app/configuracion',
-          pending: 'https://mi-tienda-kappa.vercel.app/configuracion'
+        reason: plan === 'full' ? 'Suscripción Plan Full - Snappy' : 'Suscripción Plan Simple - Snappy',
+        auto_recurring: {
+          frequency: 1,
+          frequency_type: 'months', // 🗓️ COBRO MENSUAL AUTOMÁTICO
+          transaction_amount: price, // El precio que viene del frontend (5000 o 9000)
+          currency_id: 'ARS', // Moneda Argentina
         },
-        auto_return: 'approved',
+        // URL dinámica: funciona en localhost y en snappy.uno
+        back_url: `${process.env.NEXT_PUBLIC_BASE_URL}/configuracion?status=success`,
+        payer_email: email, // El email del usuario para asociar la tarjeta
+        external_reference: shopId, // Guardamos el ID de tu tienda para saber quién pagó
+        status: 'pending',
       }
     });
 
-    console.log("✅ Link generado:", result.init_point);
+    console.log("✅ Suscripción generada:", result.init_point);
     return NextResponse.json({ url: result.init_point });
 
   } catch (error: any) {
