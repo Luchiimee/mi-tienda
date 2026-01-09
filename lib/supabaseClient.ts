@@ -1,11 +1,14 @@
 import { createClient } from '@supabase/supabase-js';
 
-// Ya no usamos 'placeholder', ahora confiamos en que Vercel tiene los datos
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+// --- ESTRATEGIA DEFENSIVA ---
+// 1. Intentamos leer las variables reales.
+// 2. Si no existen (por ejemplo durante el Build), usamos valores "falsos" para que no explote el error.
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-key';
 
-if (!supabaseUrl || !supabaseKey) {
-    throw new Error("❌ Faltan las variables de entorno de Supabase. Revisa Vercel.");
+// Solo mostramos advertencia en la consola si faltan, pero NO detenemos la app.
+if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
+    console.warn("⚠️ Build Warning: No se detectó SUPABASE_URL. Usando placeholder para evitar crash.");
 }
 
 export const supabase = createClient(supabaseUrl, supabaseKey);
