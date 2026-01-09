@@ -1,7 +1,10 @@
-// lib/supabaseClient.ts
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL as string;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string;
+// LEER VARIABLES DE ENTORNO
+// Usamos '||' para poner un valor por defecto si la variable no existe durante el build.
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-key';
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+// CREAR EL CLIENTE
+// Ahora createClient nunca recibirá "undefined" y no explotará el build.
+export const supabase = createClient(supabaseUrl, supabaseKey);
