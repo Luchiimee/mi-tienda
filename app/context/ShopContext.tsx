@@ -39,7 +39,7 @@ type ShopData = {
   productos: Product[];
   nombres: { [key: string]: string };
   descripciones: { [key: string]: string };
-  whatsapps: { [key: string]: string }; // NUEVO: Almacén de whatsapps independientes
+  whatsapps: { [key: string]: string };
 };
 
 const emptyState: ShopData = {
@@ -106,12 +106,11 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
           personal: shop.descripcion_personal || shop.descripcion || ''
       };
       
-      // MAPEO DE WHATSAPP (Si no hay específico, usa el global 'shop.whatsapp' como fallback inicial)
       const currentWhatsapps: any = {
           tienda: shop.whatsapp_tienda || shop.whatsapp || '',
           catalogo: shop.whatsapp_catalogo || shop.whatsapp || '',
           menu: shop.whatsapp_menu || shop.whatsapp || '',
-          personal: shop.whatsapp_personal || '' // En personal preferimos vacío por defecto si no hay específico
+          personal: shop.whatsapp_personal || ''
       };
 
       let nombreVisual = user.email?.split('@')[0] || 'Admin';
@@ -127,15 +126,11 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
         template: shop.template, 
         slug: currentSlugs[shop.template] || '', slugs: currentSlugs,
         logos: currentLogos, logo: currentLogos[shop.template] || '',
-        
         nombreNegocio: currentNombres[shop.template], 
         descripcion: currentDesc[shop.template],
         nombres: currentNombres, descripciones: currentDesc,
-        
-        // WhatsApp Independiente
         whatsapp: currentWhatsapps[shop.template],
         whatsapps: currentWhatsapps,
-        
         plantillaVisual: shop.plantilla_visual || 'Minimal', personalTheme: shop.personal_theme || 'glass', 
         plan: shop.plan || 'none', 
         nombreDueno: shop.nombre_dueno || '', apellidoDueno: shop.apellido_dueno || '', 
@@ -150,7 +145,6 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
   const changeTemplate = async (newTemplate: string) => {
     if (shopData.plan === 'simple' && shopData.templateLocked && shopData.templateLocked !== newTemplate) return;
     
-    // Al cambiar, cargamos TODOS los datos específicos de esa plantilla
     setShopData(prev => ({ 
         ...prev, 
         template: newTemplate, 
@@ -159,7 +153,7 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
         slug: prev.slugs[newTemplate] || '',
         nombreNegocio: prev.nombres[newTemplate], 
         descripcion: prev.descripciones[newTemplate],
-        whatsapp: prev.whatsapps[newTemplate] // <-- Cargamos el WhatsApp específico
+        whatsapp: prev.whatsapps[newTemplate]
     }));
     
     if (shopData.id) {
@@ -195,7 +189,6 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
         if (newData.logos) Object.assign(updatedLogos, newData.logos);
         else if (newData.logo !== undefined) updatedLogos[prev.template] = newData.logo;
 
-        // Actualizamos las memorias locales específicas
         if (newData.nombreNegocio !== undefined) updatedNombres[prev.template] = newData.nombreNegocio;
         if (newData.descripcion !== undefined) updatedDesc[prev.template] = newData.descripcion;
         if (newData.whatsapp !== undefined) updatedWhatsapps[prev.template] = newData.whatsapp;
@@ -210,7 +203,6 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
     if (shopData.id) {
         const dbData: any = { plantilla_visual: newData.plantillaVisual, personal_theme: newData.personalTheme };
         
-        // GUARDADO DE NOMBRES INDEPENDIENTES
         if (newData.nombreNegocio !== undefined) {
             if(shopData.template === 'tienda') dbData.nombre_tienda = newData.nombreNegocio;
             if(shopData.template === 'catalogo') dbData.nombre_catalogo = newData.nombreNegocio;
@@ -218,7 +210,6 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
             if(shopData.template === 'personal') dbData.nombre_personal = newData.nombreNegocio;
         }
         
-        // GUARDADO DE DESCRIPCIONES INDEPENDIENTES
         if (newData.descripcion !== undefined) {
             if(shopData.template === 'tienda') dbData.descripcion_tienda = newData.descripcion;
             if(shopData.template === 'catalogo') dbData.descripcion_catalogo = newData.descripcion;
@@ -226,8 +217,6 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
             if(shopData.template === 'personal') dbData.descripcion_personal = newData.descripcion;
         }
 
-        // GUARDADO DE WHATSAPP INDEPENDIENTE (Aquí está el arreglo)
-        // Ya no guardamos en 'whatsapp' global, sino en el específico.
         if (newData.whatsapp !== undefined) {
             if(shopData.template === 'tienda') dbData.whatsapp_tienda = newData.whatsapp;
             if(shopData.template === 'catalogo') dbData.whatsapp_catalogo = newData.whatsapp;
@@ -332,11 +321,40 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
   const changePassword = async (p: string) => (await supabase.auth.updateUser({ password: p })).error;
   const manualSave = async () => true; 
   
+  // --- FUNCIÓN ADDCORREGIDA PARA QUE GUARDE TODAS LAS FOTOS DE UNA ---
   const addProduct = async (prod: Product) => { 
       if (!canEdit() || !shopData.id) return; 
       const tipoActual = getTipo(shopData.template); 
-      const { data } = await supabase.from('products').insert([{ shop_id: shopData.id, titulo: prod.titulo, descripcion: prod.descripcion, precio: prod.precio, galeria: [], url_destino: prod.url, tipo: tipoActual, imagen_url: prod.imagen }]).select().single(); 
-      if (data) setShopData((prev:any) => ({ ...prev, productos: [...prev.productos, { id: data.id, titulo: data.titulo, descripcion: data.descripcion, precio: data.precio, galeria: [], url: data.url_destino, shop_id: data.shop_id, tipo: data.tipo, imagen: data.imagen_url }] })); 
+      
+      const { data } = await supabase.from('products').insert([{ 
+          shop_id: shopData.id, 
+          titulo: prod.titulo, 
+          descripcion: prod.descripcion, 
+          precio: prod.precio, 
+          // AQUÍ ESTABA EL ERROR: antes decía galeria: [], ahora enviamos las fotos reales
+          galeria: prod.galeria || [], 
+          url_destino: prod.url, 
+          tipo: tipoActual, 
+          imagen_url: prod.imagen 
+      }]).select().single(); 
+      
+      if (data) {
+          setShopData((prev:any) => ({ 
+              ...prev, 
+              productos: [...prev.productos, { 
+                  id: data.id, 
+                  titulo: data.titulo, 
+                  descripcion: data.descripcion, 
+                  precio: data.precio, 
+                  // Y actualizamos el estado local también con las fotos
+                  galeria: data.galeria || [], 
+                  url: data.url_destino, 
+                  shop_id: data.shop_id, 
+                  tipo: data.tipo, 
+                  imagen: data.imagen_url 
+              }] 
+          })); 
+      }
   };
   
   const updateProduct = async (id: string, data: Partial<Product>) => { 

@@ -16,19 +16,12 @@ export default function PublicShopPage({ params }: { params: Promise<{ slug: str
   const [viewingProduct, setViewingProduct] = useState<any | null>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
 
-  // --- FUNCIÓN CLAVE: LIMPIAR LOS DATOS DE LA GALERÍA ---
-  // Esto asegura que la galería sea siempre un Array, aunque venga rara de la base de datos
+  // Parseo seguro de galería
   const parseGallery = (galleryData: any) => {
       if (!galleryData) return [];
       if (Array.isArray(galleryData)) return galleryData;
       if (typeof galleryData === 'string') {
-          try {
-              // Intenta convertir texto "[url1, url2]" a array real
-              return JSON.parse(galleryData);
-          } catch (e) {
-              console.error("Error parseando galería:", e);
-              return [];
-          }
+          try { return JSON.parse(galleryData); } catch (e) { return []; }
       }
       return [];
   };
@@ -60,14 +53,10 @@ export default function PublicShopPage({ params }: { params: Promise<{ slug: str
           .order('created_at', { ascending: true });
       
       if (prodData) {
-          // PROCESAMOS LOS DATOS AQUÍ PARA ASEGURAR QUE GALERÍA SE LEA BIEN
           const cleanProducts = prodData.map(p => ({
               ...p,
-              // Forzamos a que galeria sea un array limpio usando la función de arriba
               galeria: parseGallery(p.galeria)
           }));
-          
-          console.log("Productos procesados:", cleanProducts); // MIRA LA CONSOLA PARA VER SI AHORA SÍ SALEN LAS FOTOS
           setProducts(cleanProducts);
       }
       setLoading(false);
@@ -87,10 +76,36 @@ export default function PublicShopPage({ params }: { params: Promise<{ slug: str
   const total = products.reduce((acc, p) => acc + (parseFloat(p.precio) || 0) * (carrito[p.id] || 0), 0);
   const cantidadTotal = Object.values(carrito).reduce((a, b) => a + b, 0);
 
+  // --- SELECCIÓN DE DATOS SEGÚN PLANTILLA ---
+  const currentName = shop ? (() => {
+      if (shop.template === 'tienda') return shop.nombre_tienda || shop.nombre_negocio;
+      if (shop.template === 'catalogo') return shop.nombre_catalogo || shop.nombre_negocio;
+      if (shop.template === 'menu') return shop.nombre_menu || shop.nombre_negocio;
+      if (shop.template === 'personal') return shop.nombre_personal || shop.nombre_negocio;
+      return shop.nombre_negocio;
+  })() : '';
+
+  const currentDesc = shop ? (() => {
+      if (shop.template === 'tienda') return shop.descripcion_tienda || shop.descripcion;
+      if (shop.template === 'catalogo') return shop.descripcion_catalogo || shop.descripcion;
+      if (shop.template === 'menu') return shop.descripcion_menu || shop.descripcion;
+      if (shop.template === 'personal') return shop.descripcion_personal || shop.descripcion;
+      return shop.descripcion;
+  })() : '';
+
+  const currentWhatsapp = shop ? (() => {
+      if (shop.template === 'tienda') return shop.whatsapp_tienda || shop.whatsapp;
+      if (shop.template === 'catalogo') return shop.whatsapp_catalogo || shop.whatsapp;
+      if (shop.template === 'menu') return shop.whatsapp_menu || shop.whatsapp;
+      if (shop.template === 'personal') return shop.whatsapp_personal || ''; 
+      return shop.whatsapp;
+  })() : '';
+
   const handleWhatsApp = () => {
-    if(!shop) return;
+    if(!shop || !currentWhatsapp) return alert("Esta tienda no tiene WhatsApp configurado.");
+    
     if (cantidadTotal === 0) { alert("⚠️ Selecciona al menos un ítem."); return; }
-    let mensaje = `Hola *${shop.nombre_negocio}*, me interesa:%0A`;
+    let mensaje = `Hola *${currentName}*, me interesa:%0A`;
     products.forEach(p => { 
         if(carrito[p.id] > 0) {
              const precioStr = (shop.template === 'catalogo' && (!p.precio || p.precio === '0')) ? '' : ` ($${p.precio})`;
@@ -98,7 +113,7 @@ export default function PublicShopPage({ params }: { params: Promise<{ slug: str
         }
     });
     if (shop.template !== 'catalogo' || total > 0) mensaje += `%0ATotal estimado: $${total}`;
-    window.open(`https://wa.me/${shop.whatsapp}?text=${mensaje}`, '_blank');
+    window.open(`https://wa.me/${currentWhatsapp}?text=${mensaje}`, '_blank');
   };
 
   const openGallery = (p: any) => {
@@ -147,20 +162,11 @@ export default function PublicShopPage({ params }: { params: Promise<{ slug: str
     return base;
   };
 
-  // --- PREPARAR IMÁGENES DEL MODAL ---
   const getModalImages = () => {
       if (!viewingProduct) return [];
-      
-      const gallery = viewingProduct.galeria; // Ya viene parseado gracias al useEffect
-      
-      // 1. Si hay galería, la usamos
-      if (gallery && Array.isArray(gallery) && gallery.length > 0) {
-          return gallery;
-      }
-      // 2. Si no, usamos la imagen suelta si existe
-      if (viewingProduct.imagen_url) {
-          return [viewingProduct.imagen_url];
-      }
+      const gallery = viewingProduct.galeria; 
+      if (gallery && Array.isArray(gallery) && gallery.length > 0) return gallery;
+      if (viewingProduct.imagen_url) return [viewingProduct.imagen_url];
       return [];
   };
 
@@ -170,15 +176,15 @@ export default function PublicShopPage({ params }: { params: Promise<{ slug: str
     <div style={{ minHeight: '100vh', background: bgBody, fontFamily: 'sans-serif', display:'flex', justifyContent:'center' }}>
       <div style={{ width: '100%', maxWidth: '480px', background: bgApp, minHeight: '100vh', boxShadow: '0 0 20px rgba(0,0,0,0.05)', position: 'relative', paddingBottom: 100 }}>
           
-          {/* HEADER */}
+          {/* HEADER (Ahora usa currentName y currentDesc) */}
           <div style={{ padding: '40px 20px 20px 20px', textAlign: 'center' }}>
               <div style={{ width: 80, height: 80, borderRadius: '50%', background: '#fff', margin: '0 auto 10px', overflow:'hidden', border: '2px solid #ff9f43', padding: 2 }}>
                   <div style={{width:'100%', height:'100%', borderRadius:'50%', overflow:'hidden', display:'flex', alignItems:'center', justifyContent:'center'}}>
                       {currentLogo ? <img src={currentLogo} style={{width:'100%', height:'100%', objectFit:'cover'}}/> : <span style={{fontSize:40}}>😎</span>}
                   </div>
               </div>
-              <h1 style={{ margin: 0, fontSize: 22, color: text, fontWeight: 'bold' }}>{shop.nombre_negocio}</h1>
-              <p style={{ margin: '5px 0 0', fontSize: 13, color: '#888', lineHeight: 1.3 }}>{shop.descripcion}</p>
+              <h1 style={{ margin: 0, fontSize: 22, color: text, fontWeight: 'bold' }}>{currentName}</h1>
+              <p style={{ margin: '5px 0 0', fontSize: 13, color: '#888', lineHeight: 1.3 }}>{currentDesc}</p>
           </div>
 
           {/* BUSCADOR */}
@@ -202,7 +208,6 @@ export default function PublicShopPage({ params }: { params: Promise<{ slug: str
                   const qty = carrito[p.id] || 0;
                   const isCatalogo = shop.template === 'catalogo';
                   const precioVacio = !p.precio || p.precio === '0';
-                  // Usamos la galería parseada
                   const imgUrl = (p.galeria && p.galeria.length > 0) ? p.galeria[0] : p.imagen_url;
 
                   return (
@@ -210,7 +215,6 @@ export default function PublicShopPage({ params }: { params: Promise<{ slug: str
                           <div style={{ width: '100%', height: 250, background: 'white', cursor: 'pointer', position: 'relative' }} onClick={() => openGallery(p)}>
                                {imgUrl ? <img src={imgUrl} style={{ width: '100%', height: '100%', objectFit: 'cover' }}/> : <div style={{width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center', fontSize:40, color:'#ccc'}}>📷</div>}
                                
-                               {/* Icono de múltiples fotos */}
                                {p.galeria && p.galeria.length > 1 && (
                                    <div style={{ position: 'absolute', top: 10, right: 10, backgroundColor: 'rgba(0,0,0,0.6)', color: '#fff', borderRadius: '12px', padding: '4px 8px', fontSize: '10px', display: 'flex', alignItems: 'center' }}>
                                        ❐ {p.galeria.length}
@@ -334,10 +338,6 @@ export default function PublicShopPage({ params }: { params: Promise<{ slug: str
 
                   <div style={{textAlign:'center', color:'white', position:'absolute', bottom:'5%', width:'100%', padding:'0 20px'}}>
                       <div style={{fontSize:18, fontWeight:'bold'}}>{viewingProduct.titulo}</div>
-                      {/* DEBUG VISUAL: Si esto dice 1, entonces es error de datos. Si dice 3, es error de CSS */}
-                      <div style={{fontSize:12, color:'yellow', marginTop:5}}>
-                          {modalImages.length} foto(s) detectada(s)
-                      </div>
                   </div>
               </div>
           )}
