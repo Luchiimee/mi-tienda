@@ -22,20 +22,37 @@ const DEFAULT_LINKS = [
 ];
 
 export type Product = { 
-    id: string; titulo: string; descripcion: string; precio: string; 
-    galeria?: string[]; url?: string; shop_id?: string; tipo?: string; imagen?: string; 
+    id: string; 
+    titulo: string; 
+    descripcion: string; 
+    precio: string; 
+    galeria?: string[]; 
+    url?: string; 
+    shop_id?: string; 
+    tipo?: string; 
+    imagen?: string; 
 };
 
 type ShopData = {
   id?: string; 
   email: string; 
   nombreAdmin: string; 
-  template: string; slug: string; 
-  slugs: { [key: string]: string }; logos: { [key: string]: string }; 
-  nombreNegocio: string; descripcion: string; whatsapp: string; 
-  logo: string; plantillaVisual: string; personalTheme: string;
+  template: string; 
+  slug: string; 
+  slugs: { [key: string]: string }; 
+  logos: { [key: string]: string }; 
+  nombreNegocio: string; 
+  descripcion: string; 
+  whatsapp: string; 
+  logo: string; 
+  plantillaVisual: string; 
+  personalTheme: string;
   plan: 'none' | 'simple' | 'full'; 
-  nombreDueno: string; apellidoDueno: string; templateLocked: string | null; lastTemplateChange: string | null; changeCount: number;
+  nombreDueno: string; 
+  apellidoDueno: string; 
+  templateLocked: string | null; 
+  lastTemplateChange: string | null; 
+  changeCount: number;
   productos: Product[];
   nombres: { [key: string]: string };
   descripciones: { [key: string]: string };
@@ -53,7 +70,6 @@ const emptyState: ShopData = {
   plantillaVisual: 'Minimal', personalTheme: 'glass', plan: 'none', 
   nombreDueno: '', apellidoDueno: '', templateLocked: null, lastTemplateChange: null, changeCount: 0, productos: [],
   nombres: {}, descripciones: {}, whatsapps: {},
-  // Inicialización de nuevos campos
   subscription_status: 'trial', trial_start_date: '', mp_subscription_id: '', plan_price: 0
 };
 
@@ -79,10 +95,19 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
   const loadShopData = async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
-    let { data: shop } = await supabase.from('shops').select('*').eq('owner_id', user.id).maybeSingle();
+    
+    // Buscar tienda existente
+    let { data: shop } = await supabase.from('shops').select('*').eq('owner_id', user.id).maybeSingle(); // Usamos maybeSingle para evitar errores 406
 
+    // Si no existe, crearla (FALLBACK si falló el trigger de DB)
     if (!shop) {
-       const { data: newShop } = await supabase.from('shops').insert([{ owner_id: user.id, slug_tienda: `tienda-${Date.now()}`, nombre_negocio: 'Mi Negocio', template: 'tienda', plan: 'none' }]).select().single();
+       const { data: newShop } = await supabase.from('shops').insert([{ 
+           owner_id: user.id, 
+           slug_tienda: null, // ⚠️ IMPORTANTE: Nace en NULL para obligar config
+           nombre_negocio: 'Mi Negocio', 
+           template: 'tienda', 
+           plan: 'none' 
+        }]).select().single();
        shop = newShop;
     }
 
@@ -90,6 +115,7 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
       const tipoNecesario = getTipo(shop.template);
       let { data: items } = await supabase.from('products').select('*').eq('shop_id', shop.id).eq('tipo', tipoNecesario).order('created_at', { ascending: true });
 
+      // Si no hay productos, crear los defaults
       if (!items || items.length === 0) {
          const defaults = getDefaults(shop.template);
          const toInsert = defaults.map(p => ({ ...p, shop_id: shop.id, imagen_url: (p as any).imagen_url }));
@@ -175,15 +201,15 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
        let { data: items } = await supabase.from('products').select('*').eq('shop_id', shopData.id).eq('tipo', tipoNecesario).order('created_at', { ascending: true });
 
        if (!items || items.length === 0) {
-         const defaults = getDefaults(newTemplate);
-         const toInsert = defaults.map(p => ({ ...p, shop_id: shopData.id, imagen_url: (p as any).imagen_url }));
-         const { data: inserted } = await supabase.from('products').insert(toInsert).select();
-         if (inserted) items = inserted;
+          const defaults = getDefaults(newTemplate);
+          const toInsert = defaults.map(p => ({ ...p, shop_id: shopData.id, imagen_url: (p as any).imagen_url }));
+          const { data: inserted } = await supabase.from('products').insert(toInsert).select();
+          if (inserted) items = inserted;
        }
 
        setShopData(prev => ({ 
            ...prev, template: newTemplate, 
-           productos: items?.map(p => ({ id: p.id, titulo: p.titulo, descripcion: p.descripcion, precio: p.precio, galeria: [], url: p.url_destino, shop_id: p.shop_id, tipo: p.tipo, imagen: p.imagen_url })) || [] 
+           productos: items?.map(p => ({ id: p.id, titulo: p.titulo, descripcion: p.descripcion, precio: p.precio, galeria: p.galeria || [], url: p.url_destino, shop_id: p.shop_id, tipo: p.tipo, imagen: p.imagen_url })) || [] 
        }));
     }
   };
@@ -334,7 +360,7 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
   const changePassword = async (p: string) => (await supabase.auth.updateUser({ password: p })).error;
   const manualSave = async () => true; 
   
-  // --- FUNCIÓN ADDCORREGIDA PARA QUE GUARDE TODAS LAS FOTOS DE UNA ---
+  // --- FUNCIÓN AGREGAR PRODUCTO (CORREGIDA) ---
   const addProduct = async (prod: Product) => { 
       if (!canEdit() || !shopData.id) return; 
       const tipoActual = getTipo(shopData.template); 
@@ -344,8 +370,7 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
           titulo: prod.titulo, 
           descripcion: prod.descripcion, 
           precio: prod.precio, 
-          // AQUÍ ESTABA EL ERROR: antes decía galeria: [], ahora enviamos las fotos reales
-          galeria: prod.galeria || [], 
+          galeria: prod.galeria || [], // Guardamos el array completo
           url_destino: prod.url, 
           tipo: tipoActual, 
           imagen_url: prod.imagen 
@@ -359,7 +384,6 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
                   titulo: data.titulo, 
                   descripcion: data.descripcion, 
                   precio: data.precio, 
-                  // Y actualizamos el estado local también con las fotos
                   galeria: data.galeria || [], 
                   url: data.url_destino, 
                   shop_id: data.shop_id, 
