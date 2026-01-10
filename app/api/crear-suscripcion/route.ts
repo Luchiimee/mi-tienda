@@ -7,24 +7,26 @@ const client = new MercadoPagoConfig({ accessToken: process.env.MP_ACCESS_TOKEN 
 
 export async function POST(req: Request) {
   try {
-    // 1. Validar que las claves existan ANTES de usarlas
+    // 1. Validaciones de entorno
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    
+    // DEFINIMOS EL DOMINIO AQUÍ PARA QUE NO FALLE
+    // Si la variable de entorno falta, usa tu dominio real
+    const domain = process.env.NEXT_PUBLIC_DOMAIN_URL || 'https://snappy.uno'; 
 
     if (!supabaseUrl || !supabaseServiceKey) {
-        throw new Error("Faltan las credenciales de Supabase (URL o SERVICE_KEY) en Vercel.");
+        throw new Error("Faltan credenciales de Supabase en el servidor.");
     }
 
-    // 2. Inicializar Supabase Admin AQUÍ ADENTRO (Para evitar error de Build)
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
     const { email, plan, shopId, couponCode } = await req.json();
 
-    // 3. PRECIO BASE
+    // 2. PRECIO BASE
     let finalPrice = plan === 'full' ? 20100 : 15200;
     let description = `Suscripción Snappy - Plan ${plan === 'full' ? 'Full' : 'Básico'}`;
 
-    // 4. VERIFICAR CUPÓN
+    // 3. VERIFICAR CUPÓN
     if (couponCode) {
         const { data: coupon } = await supabase
             .from('coupons')
@@ -42,7 +44,7 @@ export async function POST(req: Request) {
 
     finalPrice = Math.round(finalPrice);
 
-    // 5. Crear PreApproval en Mercado Pago
+    // 4. Crear PreApproval (Suscripción)
     const preapproval = new PreApproval(client);
     
     const result = await preapproval.create({
@@ -54,7 +56,8 @@ export async function POST(req: Request) {
           transaction_amount: finalPrice,
           currency_id: 'ARS',
         },
-        back_url: `${process.env.NEXT_PUBLIC_DOMAIN_URL}/configuracion`, 
+        // AQUÍ USAMOS LA VARIABLE SEGURA 'domain'
+        back_url: `${domain}/configuracion`, 
         payer_email: email,
         external_reference: shopId, 
         status: 'pending',
