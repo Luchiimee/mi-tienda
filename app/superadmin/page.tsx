@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 
 // ⚠️ IMPORTANTE: PON TU EMAIL EXACTO AQUÍ PARA LA PROTECCIÓN FRONTEND
-const ADMIN_EMAIL = 'luchiimee@gmail.com'; 
+const ADMIN_EMAIL = 'luchiimee2@gmail.com'; 
 
 export default function SuperAdminPage() {
   const router = useRouter();

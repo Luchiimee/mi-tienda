@@ -203,7 +203,7 @@ export default function Sidebar({ activeTab = 'personalizar' }: SidebarProps) {
             <li className={activeTab === 'configuracion' ? 'activo' : ''}><Link href="/configuracion" style={{ display: 'flex', alignItems: 'center', width: '100%', height: '100%', textDecoration: 'none', color: 'inherit' }}>⚙️ Configuración</Link></li>
             
             {/* ⚠️ BOTÓN SECRETO SUPER ADMIN (Solo para luchiimee@gmail.com) */}
-            {shopData.email === 'luchiimee@gmail.com' && (
+            {shopData.email === 'luchiimee2@gmail.com' && (
                 <li style={{ marginTop: 20, borderTop: '1px solid #34495e', paddingTop: 20 }} className={activeTab === 'superadmin' ? 'activo' : ''}>
                     <Link 
                         href="/superadmin" 
