@@ -38,7 +38,20 @@ export default function Sidebar({ activeTab = 'personalizar' }: SidebarProps) {
   const togglePlantillas = () => setPlantillasAbierto(!plantillasAbierto);
   const toggleAcordeon = (seccion: string) => setSeccionAbierta(seccionAbierta === seccion ? null : seccion);
   
-  const checkEdit = () => { if (!canEdit()) { if(window.confirm("⚠️ Configura tu plan primero.")) router.push('/configuracion'); return false; } return true; };
+  // Función centralizada de seguridad
+  const checkEdit = () => { 
+      if (!canEdit()) { 
+          // Si no tiene plan, o tiene plan simple y quiere editar algo bloqueado
+          if(window.confirm("⚠️ Para editar, necesitas activar un plan.\n\n¿Quieres ir a elegir uno ahora?")) {
+              // Redirigir al inicio del admin donde sale el PlanSelector si plan es 'none'
+              // O a configuración si es otro caso
+              router.push('/admin'); 
+          }
+          return false; 
+      } 
+      return true; 
+  };
+
   const handleChange = (e: any) => { if (!checkEdit()) return; updateConfig({ [e.target.name]: e.target.value }); };
   
   const handleProductEdit = (e: any) => { 
@@ -56,7 +69,11 @@ export default function Sidebar({ activeTab = 'personalizar' }: SidebarProps) {
       }
   };
   
-  const handleSaveClick = async () => { await manualSave(); alert("✅ ¡Guardado correctamente!"); };
+  const handleSaveClick = async () => { 
+      if(!checkEdit()) return;
+      await manualSave(); 
+      alert("✅ ¡Guardado correctamente!"); 
+  };
 
   const copierLink = () => { 
       if(!shopData.slug) return alert("Define un link primero"); 
@@ -119,7 +136,14 @@ export default function Sidebar({ activeTab = 'personalizar' }: SidebarProps) {
       setDraggedItemIndex(null);
   };
 
-  const selectTemplate = (val: string) => { if (shopData.plan === 'simple' && shopData.templateLocked && shopData.templateLocked !== val) return; changeTemplate(val); setIndexEditando(0); };
+  const selectTemplate = (val: string) => { 
+      // Si el plan es simple y la plantilla está bloqueada en otra diferente, NO HACER NADA
+      if (shopData.plan === 'simple' && shopData.templateLocked && shopData.templateLocked !== val) return; 
+      
+      changeTemplate(val); 
+      setIndexEditando(0); 
+  };
+  
   const handleLogout = async () => { await supabase.auth.signOut(); router.push('/login'); };
 
   const agregarSiguienteProducto = () => {
@@ -175,10 +199,28 @@ export default function Sidebar({ activeTab = 'personalizar' }: SidebarProps) {
                <div className="grid-plantillas">
                 {templates.map((t) => {
                   const isSelected = shopData.template === t.id;
+                  // ¿Está bloqueado este botón?
+                  // Si el plan es simple Y hay una plantilla bloqueada Y NO es esta plantilla
                   const isDisabled = shopData.plan === 'simple' && shopData.templateLocked && shopData.templateLocked !== t.id;
+                  
                   return (
-                    <div key={t.id} className={`item-plantilla ${isSelected ? 'seleccionada' : ''}`} onClick={() => selectTemplate(t.id)} style={{opacity: isDisabled ? 0.3 : 1, filter: isDisabled ? 'grayscale(100%)' : 'none', cursor: isDisabled ? 'not-allowed' : 'pointer', border: isSelected && (shopData.plan==='simple' && shopData.templateLocked) ? '2px solid #f1c40f' : ''}}>
-                        <div className="icono-grande">{t.icon}</div><span style={{textTransform:'capitalize', fontWeight:'bold'}}>{t.label}</span>
+                    <div 
+                        key={t.id} 
+                        className={`item-plantilla ${isSelected ? 'seleccionada' : ''}`} 
+                        onClick={() => selectTemplate(t.id)} 
+                        style={{
+                            opacity: isDisabled ? 0.3 : 1, 
+                            filter: isDisabled ? 'grayscale(100%)' : 'none', 
+                            cursor: isDisabled ? 'not-allowed' : 'pointer', 
+                            // Borde dorado si es la seleccionada del plan simple
+                            border: isSelected && (shopData.plan==='simple' && shopData.templateLocked) ? '2px solid #f1c40f' : ''
+                        }}
+                        title={isDisabled ? "Bloqueado por tu Plan Básico" : ""}
+                    >
+                        <div className="icono-grande">{t.icon}</div>
+                        <span style={{textTransform:'capitalize', fontWeight:'bold'}}>
+                            {t.label} {isDisabled && '🔒'}
+                        </span>
                     </div>
                   );
                 })}
@@ -201,7 +243,7 @@ export default function Sidebar({ activeTab = 'personalizar' }: SidebarProps) {
                   </>
               )}
               
-              {/* --- AQUÍ ESTÁ LO QUE FALTABA: SELECTOR DE TEMAS PARA 'PERSONAL' --- */}
+              {/* SELECTOR DE TEMAS PARA 'PERSONAL' */}
               {shopData.template === 'personal' && (
                   <div style={{marginTop:15, borderTop:'1px dashed #34495e', paddingTop:10}}>
                       <label style={{fontSize:11, fontWeight:'bold', color:'#7f8c8d', display:'block', marginBottom:5}}>Estilo de Botones</label>
@@ -209,7 +251,7 @@ export default function Sidebar({ activeTab = 'personalizar' }: SidebarProps) {
                           {['minimal', 'neon', 'glass'].map((theme) => (
                               <button 
                                 key={theme}
-                                onClick={() => updateConfig({ personalTheme: theme })}
+                                onClick={() => { if(checkEdit()) updateConfig({ personalTheme: theme }); }}
                                 style={{
                                     flex: 1, padding: '8px', 
                                     background: shopData.personalTheme === theme ? '#3498db' : '#ecf0f1',
@@ -288,25 +330,25 @@ export default function Sidebar({ activeTab = 'personalizar' }: SidebarProps) {
                                 <div>
                                     <label style={{fontSize:10,fontWeight:'bold',color:'#7f8c8d', display:'block', marginBottom:5}}>Galería (Drag & Drop)</label>
                                     <label htmlFor={`sidebar-upload-${productoActivo.id}`} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '10px', border: '1px dashed #3498db', borderRadius: '6px', cursor: 'pointer', color: '#3498db', fontSize: '11px', fontWeight: '500', backgroundColor: uploading ? '#f0f8ff' : 'white', textAlign: 'center', marginBottom: 10 }}>
-                                        {uploading ? '⏳...' : '📸 Agregar Foto'}
-                                        <input id={`sidebar-upload-${productoActivo.id}`} type="file" accept="image/*" onChange={handleImageUpload} style={{display:'none'}} />
+                                            {uploading ? '⏳...' : '📸 Agregar Foto'}
+                                            <input id={`sidebar-upload-${productoActivo.id}`} type="file" accept="image/*" onChange={handleImageUpload} style={{display:'none'}} />
                                     </label>
 
                                     <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:10}}>
-                                        {localGallery.slice(0, 2).map((img: string, idx: number) => (
-                                            <div 
-                                                key={idx}
-                                                draggable
-                                                onDragStart={() => handleDragStart(idx)}
-                                                onDragOver={handleDragOver}
-                                                onDrop={() => handleDrop(idx)}
-                                                style={{position:'relative', width:'100%', aspectRatio:'1/1', border: idx===0 ? '3px solid #2ecc71' : '1px solid #ddd', borderRadius:8, cursor:'grab', overflow:'hidden', background:'white'}}
-                                            >
-                                                <img src={img} style={{width:'100%', height:'100%', objectFit:'cover'}} />
-                                                <button onClick={() => removeImage(idx)} style={{position:'absolute', top:5, right:5, width:20, height:20, background:'rgba(255,0,0,0.8)', color:'white', borderRadius:'50%', border:'none', fontSize:12, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', zIndex:10}}>×</button>
-                                                {idx === 0 && <div style={{position:'absolute', bottom:0, left:0, width:'100%', background:'rgba(46, 204, 113, 0.9)', color:'white', fontSize:9, textAlign:'center', fontWeight:'bold', padding:'3px 0'}}>⭐ PORTADA</div>}
-                                            </div>
-                                        ))}
+                                            {localGallery.slice(0, 2).map((img: string, idx: number) => (
+                                                <div 
+                                                    key={idx}
+                                                    draggable
+                                                    onDragStart={() => handleDragStart(idx)}
+                                                    onDragOver={handleDragOver}
+                                                    onDrop={() => handleDrop(idx)}
+                                                    style={{position:'relative', width:'100%', aspectRatio:'1/1', border: idx===0 ? '3px solid #2ecc71' : '1px solid #ddd', borderRadius:8, cursor:'grab', overflow:'hidden', background:'white'}}
+                                                >
+                                                    <img src={img} style={{width:'100%', height:'100%', objectFit:'cover'}} />
+                                                    <button onClick={() => removeImage(idx)} style={{position:'absolute', top:5, right:5, width:20, height:20, background:'rgba(255,0,0,0.8)', color:'white', borderRadius:'50%', border:'none', fontSize:12, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', zIndex:10}}>×</button>
+                                                    {idx === 0 && <div style={{position:'absolute', bottom:0, left:0, width:'100%', background:'rgba(46, 204, 113, 0.9)', color:'white', fontSize:9, textAlign:'center', fontWeight:'bold', padding:'3px 0'}}>⭐ PORTADA</div>}
+                                                </div>
+                                            ))}
                                     </div>
 
                                     {localGallery.length > 2 && (

@@ -3,7 +3,7 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 
-// --- DATOS POR DEFECTO (Productos, Menús, etc.) ---
+// --- DATOS POR DEFECTO ---
 const DEFAULT_TIENDA = [
   { titulo: 'Remera Básica', descripcion: 'Algodón 100% premium.', precio: '12000', galeria: [], imagen_url: 'https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?auto=format&fit=crop&w=500&q=60', tipo: 'producto' },
   { titulo: 'Jean Slim Fit', descripcion: 'Denim elastizado azul.', precio: '45000', galeria: [], imagen_url: 'https://images.unsplash.com/photo-1542272617-08f086303293?auto=format&fit=crop&w=500&q=60', tipo: 'producto' }
@@ -115,40 +115,31 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
       let nombreFinal = shop.nombre_dueno || '';
       let apellidoFinal = shop.apellido_dueno || '';
       
-      // Si faltan datos en la tabla shops, buscamos en los metadatos del usuario (Google o Registro)
       if (!nombreFinal || !apellidoFinal) {
           const meta = user.user_metadata || {};
-          
-          // Intento 1: Buscar campos explícitos (común en registro manual o algunos providers)
           let nombreMeta = meta.first_name || meta.given_name || '';
           let apellidoMeta = meta.last_name || meta.family_name || '';
 
-          // Intento 2: Si falló lo anterior, buscar en 'full_name' o 'name' (común en Google)
           if (!nombreMeta && (meta.full_name || meta.name)) {
               const nombreCompleto = meta.full_name || meta.name;
-              const partes = nombreCompleto.split(' '); // Dividimos por espacios
-              
+              const partes = nombreCompleto.split(' ');
               if (partes.length > 0) {
-                  nombreMeta = partes[0]; // El primero es el nombre
+                  nombreMeta = partes[0];
                   if (partes.length > 1) {
-                      apellidoMeta = partes.slice(1).join(' '); // El resto es el apellido
+                      apellidoMeta = partes.slice(1).join(' ');
                   }
               }
           }
 
-          // Si logramos rescatar algo, actualizamos las variables locales Y la base de datos
           if (nombreMeta) {
               nombreFinal = nombreMeta;
               apellidoFinal = apellidoMeta;
-              
-              // Guardado silencioso en segundo plano para que quede fijo
               await supabase.from('shops').update({
                   nombre_dueno: nombreFinal,
                   apellido_dueno: apellidoFinal
               }).eq('id', shop.id);
           }
       }
-      // -----------------------------------------------------------
 
       const tipoNecesario = getTipo(shop.template);
       let { data: items } = await supabase.from('products').select('*').eq('shop_id', shop.id).eq('tipo', tipoNecesario).order('created_at', { ascending: true });
@@ -183,20 +174,18 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
           personal: shop.whatsapp_personal || ''
       };
 
-      // --- CONSTRUCCIÓN DEL SALUDO (Ahora sí con Nombre Real) ---
-      let nombreVisual = ''; // Empezamos vacío
+      let nombreVisual = ''; 
       if (nombreFinal) {
           nombreVisual = nombreFinal;
           if (apellidoFinal) nombreVisual += ` ${apellidoFinal.charAt(0).toUpperCase()}.`;
       } else {
-          // Fallback solo si realmente falló todo lo anterior
           nombreVisual = user.email?.split('@')[0] || 'Admin';
       }
 
       setShopData({
         id: shop.id, 
         email: user.email || '', 
-        nombreAdmin: nombreVisual, // ¡Aquí va el nombre corregido!
+        nombreAdmin: nombreVisual, 
         template: shop.template, 
         slug: currentSlugs[shop.template] || '', slugs: currentSlugs,
         logos: currentLogos, logo: currentLogos[shop.template] || '',
@@ -207,8 +196,8 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
         whatsapps: currentWhatsapps,
         plantillaVisual: shop.plantilla_visual || 'Minimal', personalTheme: shop.personal_theme || 'glass', 
         plan: shop.plan || 'none', 
-        nombreDueno: nombreFinal,      // Rellena la card de perfil
-        apellidoDueno: apellidoFinal,  // Rellena la card de perfil
+        nombreDueno: nombreFinal,      
+        apellidoDueno: apellidoFinal,  
         templateLocked: shop.template_locked || null, lastTemplateChange: shop.last_template_change, changeCount: shop.change_count || 0,
         productos: items?.map(p => ({ id: p.id, titulo: p.titulo, descripcion: p.descripcion, precio: p.precio, galeria: p.galeria || [], url: p.url_destino, shop_id: p.shop_id, tipo: p.tipo, imagen: p.imagen_url })) || [],
         
@@ -222,7 +211,56 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
 
   useEffect(() => { loadShopData(); }, []);
 
+  // --- 🔒 NUEVA LÓGICA DE SEGURIDAD ---
+  const canEdit = () => {
+      // 1. Si no tiene plan elegido, NO PUEDE EDITAR NADA
+      if (shopData.plan === 'none') return false;
+      // 2. Si el plan es Full, puede editar todo
+      if (shopData.plan === 'full') return true;
+      // 3. Si el plan es Simple, solo puede editar si ya eligió su plantilla
+      if (shopData.plan === 'simple' && shopData.templateLocked) return true;
+      
+      return false;
+  };
+
+  // --- 🚀 NUEVA FUNCIÓN: ACTIVAR PERIODO DE PRUEBA ---
+  const activateTrial = async (selectedPlan: 'simple' | 'full', selectedTemplate?: string) => {
+      if (!shopData.id) return;
+
+      const now = new Date().toISOString();
+      const updates: any = {
+          plan: selectedPlan,
+          subscription_status: 'trial',
+          trial_start_date: now,
+      };
+
+      if (selectedPlan === 'simple' && selectedTemplate) {
+          updates.template = selectedTemplate;
+          updates.template_locked = selectedTemplate;
+      } else if (selectedPlan === 'full') {
+          updates.template_locked = null;
+      }
+
+      const { error } = await supabase.from('shops').update(updates).eq('id', shopData.id);
+
+      if (!error) {
+          setShopData(prev => ({
+              ...prev,
+              plan: selectedPlan,
+              subscription_status: 'trial',
+              trial_start_date: now,
+              template: (selectedPlan === 'simple' && selectedTemplate) ? selectedTemplate : prev.template,
+              templateLocked: (selectedPlan === 'simple' && selectedTemplate) ? selectedTemplate : null
+          }));
+          return true;
+      }
+      return false;
+  };
+
+  // --- FUNCIONES CRUD ORIGINALES RESTAURADAS ---
+
   const changeTemplate = async (newTemplate: string) => {
+    // Si el plan es simple y la plantilla está bloqueada en OTRA, no dejar cambiar
     if (shopData.plan === 'simple' && shopData.templateLocked && shopData.templateLocked !== newTemplate) return;
     
     setShopData(prev => ({ 
@@ -394,10 +432,7 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
           await supabase.from('shops').update(dbData).eq('id', shopData.id);
       }
   };
-
-  const canEdit = () => (shopData.plan === 'full' || (shopData.plan === 'simple' && shopData.templateLocked)) ? true : false;
   
-  const checkTemplateChangeAllowed = () => { if (shopData.plan === 'full' || !shopData.templateLocked) return { allowed: true }; if (!shopData.lastTemplateChange) return { allowed: true }; const diffDays = Math.ceil(Math.abs(new Date().getTime() - new Date(shopData.lastTemplateChange).getTime()) / (1000 * 60 * 60 * 24)); if (diffDays >= 30) return { allowed: true }; return { allowed: false, daysLeft: 30 - diffDays }; };
   const changePassword = async (p: string) => (await supabase.auth.updateUser({ password: p })).error;
   const manualSave = async () => true; 
   
@@ -450,7 +485,7 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
   const deleteProduct = async (id: string) => { if (!canEdit()) return; setShopData((prev:any) => ({ ...prev, productos: prev.productos.filter((p:any) => p.id !== id) })); await supabase.from('products').delete().eq('id', id); };
 
   return (
-    <ShopContext.Provider value={{ shopData, updateConfig, changeTemplate, addProduct, updateProduct, deleteProduct, updateProfile, lockTemplate, canEdit, changePassword, manualSave, resetTemplate, updateTemplateSlug }}>
+    <ShopContext.Provider value={{ shopData, updateConfig, changeTemplate, addProduct, updateProduct, deleteProduct, updateProfile, lockTemplate, canEdit, changePassword, manualSave, resetTemplate, updateTemplateSlug, activateTrial }}>
       {children}
     </ShopContext.Provider>
   );
