@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabaseClient';
 
 const ADMIN_EMAIL = 'luchiimee2@gmail.com'.toLowerCase();
 
+// --- DATOS POR DEFECTO ---
 const DEFAULT_TIENDA = [
   { titulo: 'Remera Básica', descripcion: 'Algodón 100% premium.', precio: '12000', galeria: [], imagen_url: 'https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?auto=format&fit=crop&w=500&q=60', tipo: 'producto' },
   { titulo: 'Jean Slim Fit', descripcion: 'Denim elastizado azul.', precio: '45000', galeria: [], imagen_url: 'https://images.unsplash.com/photo-1542272617-08f086303293?auto=format&fit=crop&w=500&q=60', tipo: 'producto' }
@@ -101,7 +102,8 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
             nombres: currentNombres, descripciones: currentDesc, whatsapp: currentWhatsapps[shop.template] || '', whatsapps: currentWhatsapps,
             plantillaVisual: shop.plantilla_visual || 'Minimal', personalTheme: shop.personal_theme || 'glass', plan: shop.plan || 'none', 
             nombreDueno: nombreFinal, apellidoDueno: apellidoFinal, telefonoDueno: telefonoFinal,
-            templateLocked: shop.template_locked || null, lastTemplateChange: shop.last_template_change, changeCount: shop.change_count || 0,
+            templateLocked: shop.template_locked || null, lastTemplateChange: shop.last_template_change, 
+            changeCount: shop.change_count || 0, // ✅ Cargamos el contador
             productos: items?.map(p => ({ id: p.id, titulo: p.titulo, descripcion: p.descripcion, precio: p.precio, galeria: p.galeria || [], url: p.url_destino, shop_id: p.shop_id, tipo: p.tipo, imagen: p.imagen_url })) || [],
             subscription_status: shop.subscription_status || 'trial', trial_start_date: shop.trial_start_date || shop.created_at, mp_subscription_id: shop.mp_subscription_id || '', plan_price: shop.plan_price || 0
           });
@@ -126,11 +128,12 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
       const now = new Date().toISOString();
       const updates: any = { plan: selectedPlan, subscription_status: 'trial', trial_start_date: now };
       
-      // Al activar Básico, fijamos la fecha de cambio para que empiecen a correr los 30 días
+      // ✅ Si elige Básico, lo seteamos como "Nuevo Inicio" (Contador 0)
       if (selectedPlan === 'simple' && selectedTemplate) { 
           updates.template = selectedTemplate; 
           updates.template_locked = selectedTemplate;
-          updates.last_template_change = now; // ✅ IMPORTANTE
+          updates.last_template_change = now;
+          updates.change_count = 0; // Reiniciamos contador al activar
       } else if (selectedPlan === 'full') { 
           updates.template_locked = null; 
       }
@@ -141,37 +144,38 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
               ...prev, plan: selectedPlan, subscription_status: 'trial', trial_start_date: now, 
               template: (selectedPlan === 'simple' && selectedTemplate) ? selectedTemplate : prev.template, 
               templateLocked: (selectedPlan === 'simple' && selectedTemplate) ? selectedTemplate : null,
-              lastTemplateChange: (selectedPlan === 'simple') ? now : prev.lastTemplateChange
+              lastTemplateChange: (selectedPlan === 'simple') ? now : prev.lastTemplateChange,
+              changeCount: (selectedPlan === 'simple') ? 0 : prev.changeCount
           }));
           return true;
       }
       return false;
   };
 
+  // --- 🚀 LÓGICA DE CAMBIO 30 DÍAS (CORREGIDA) ---
   const changeTemplate = async (newTemplate: string): Promise<{success: boolean, message?: string}> => {
     if (shopData.template === newTemplate) return { success: true };
 
-    // --- RESTRICCIÓN DE 30 DÍAS (PLAN SIMPLE) ---
+    // Si es Plan Básico
     if (shopData.plan === 'simple') {
-        // Si no está bloqueada, es la primera vez, dejamos pasar.
-        // Pero si ya está bloqueada Y hay fecha de cambio, verificamos.
-        if (shopData.templateLocked && shopData.lastTemplateChange) {
+        const currentCount = shopData.changeCount || 0;
+
+        // Si ya usó su cambio permitido (count >= 1), chequeamos fechas
+        if (currentCount >= 1 && shopData.lastTemplateChange) {
             const lastChange = new Date(shopData.lastTemplateChange);
             const now = new Date();
-            
-            // Calculamos diferencia en milisegundos
             const diffTime = Math.abs(now.getTime() - lastChange.getTime());
             const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
             
-            // Si pasaron menos de 30 días, bloqueamos
             if (diffDays < 30) {
                 const remaining = 30 - diffDays;
-                return { success: false, message: `🔒 Plan Básico: Solo puedes cambiar de plantilla cada 30 días. Faltan ${remaining} días.` };
+                return { success: false, message: `🔒 Bloqueado: Ya usaste tu cambio permitido. Podrás cambiar de nuevo en ${remaining} días.` };
             }
         }
+        // Si count es 0, permitimos el cambio (el Sidebar mostrará la advertencia primero)
     }
     
-    // Si pasa la validación:
+    // --- ACTUALIZACIÓN VISUAL INMEDIATA (OPTIMISTA) ---
     setShopData(prev => ({ 
         ...prev, template: newTemplate, productos: [], 
         logo: prev.logos[newTemplate] || '', slug: prev.slugs[newTemplate] || '',
@@ -182,11 +186,18 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
        const now = new Date().toISOString();
        const updates: any = { template: newTemplate };
        
-       // Si es simple, actualizamos el bloqueo y la fecha
        if (shopData.plan === 'simple') {
            updates.template_locked = newTemplate;
            updates.last_template_change = now;
-           setShopData(prev => ({ ...prev, templateLocked: newTemplate, lastTemplateChange: now }));
+           updates.change_count = (shopData.changeCount || 0) + 1; // Incrementamos contador
+           
+           // Actualizamos estado local también
+           setShopData(prev => ({ 
+               ...prev, 
+               templateLocked: newTemplate, 
+               lastTemplateChange: now,
+               changeCount: (prev.changeCount || 0) + 1 
+           }));
        }
 
        await supabase.from('shops').update(updates).eq('id', shopData.id);

@@ -134,13 +134,23 @@ export default function Sidebar({ activeTab = 'personalizar' }: SidebarProps) {
       setDraggedItemIndex(null);
   };
 
-  // --- 🚀 NUEVA LÓGICA DE SELECCIÓN CON RESTRICCIÓN ---
+  // --- 🚀 NUEVA LÓGICA DE SELECCIÓN CON POP-UP Y RESTRICCIÓN ---
   const selectTemplate = async (val: string) => { 
-      // Llamamos a la función del contexto (que ahora devuelve info si falló)
+      // Si el usuario ya está en esa plantilla, no hacemos nada
+      if (shopData.template === val) return;
+
+      // 1. POP-UP DE ADVERTENCIA PARA PLAN BÁSICO (Primera vez o contador 0)
+      if (shopData.plan === 'simple' && (!shopData.changeCount || shopData.changeCount === 0)) {
+          if (!confirm("⚠️ ATENCIÓN: Estás a punto de cambiar tu plantilla.\n\nEn el Plan Básico, tienes 1 cambio permitido ahora. Si confirmas este cambio, la opción de cambiar plantilla se bloqueará por 30 días.\n\n¿Estás seguro de que quieres cambiar a esta plantilla?")) {
+              return; // Si cancela, no hacemos nada
+          }
+      }
+
+      // 2. LLAMADA AL CONTEXTO (Verifica fechas y ejecuta cambio)
       const result = await changeTemplate(val);
       
       if (!result.success) {
-          // Si falla (por los 30 días), mostramos el mensaje del contexto
+          // Si falla (porque ya pasaron sus cambios y no pasaron 30 días), mostramos el mensaje de error
           alert(result.message);
       } else {
           // Si fue exitoso, reseteamos el índice de edición
@@ -184,7 +194,7 @@ export default function Sidebar({ activeTab = 'personalizar' }: SidebarProps) {
           <span style={{fontSize:12, color:'#95a5a6'}}>Panel Admin</span>
         </div>
         
-        {/* --- NAV MODIFICADA CON BOTÓN SUPER ADMIN --- */}
+        {/* --- NAV --- */}
         <nav style={{ marginBottom: '20px' }}>
           <ul>
             <li className={activeTab === 'personalizar' ? 'activo' : ''}><Link href="/admin" style={{ display: 'flex', alignItems: 'center', width: '100%', height: '100%', textDecoration: 'none', color: 'inherit' }}>🖌️ Personalizar</Link></li>
@@ -207,7 +217,7 @@ export default function Sidebar({ activeTab = 'personalizar' }: SidebarProps) {
             </li>
             <li className={activeTab === 'configuracion' ? 'activo' : ''}><Link href="/configuracion" style={{ display: 'flex', alignItems: 'center', width: '100%', height: '100%', textDecoration: 'none', color: 'inherit' }}>⚙️ Configuración</Link></li>
             
-            {/* ⚠️ BOTÓN SECRETO SUPER ADMIN (Solo para luchiimee2@gmail.com) */}
+            {/* BOTÓN SUPER ADMIN */}
             {shopData.email === 'luchiimee2@gmail.com' && (
                 <li style={{ marginTop: 20, borderTop: '1px solid #34495e', paddingTop: 20 }} className={activeTab === 'superadmin' ? 'activo' : ''}>
                     <Link 
@@ -230,7 +240,6 @@ export default function Sidebar({ activeTab = 'personalizar' }: SidebarProps) {
                  <div className="grid-plantillas">
                   {templates.map((t) => {
                     const isSelected = shopData.template === t.id;
-                    // Ya no bloqueamos visualmente con opacidad, permitimos click para mostrar la alerta de días
                     const isLockedByPlan = shopData.plan === 'simple' && shopData.templateLocked && shopData.templateLocked !== t.id;
                     
                     return (
