@@ -57,8 +57,7 @@ type ShopData = {
   nombres: { [key: string]: string };
   descripciones: { [key: string]: string };
   whatsapps: { [key: string]: string };
-  // --- NUEVOS CAMPOS PARA SUSCRIPCIÓN ---
-  subscription_status?: string; // 'trial', 'active', 'past_due'
+  subscription_status?: string;
   trial_start_date?: string;
   mp_subscription_id?: string;
   plan_price?: number;
@@ -96,14 +95,14 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
     
-    // Buscar tienda existente
-    let { data: shop } = await supabase.from('shops').select('*').eq('owner_id', user.id).maybeSingle(); // Usamos maybeSingle para evitar errores 406
+    // 1. Buscamos la tienda
+    let { data: shop } = await supabase.from('shops').select('*').eq('owner_id', user.id).maybeSingle();
 
-    // Si no existe, crearla (FALLBACK si falló el trigger de DB)
+    // 2. Si no existe, la creamos (con slug NULL para obligar config)
     if (!shop) {
        const { data: newShop } = await supabase.from('shops').insert([{ 
            owner_id: user.id, 
-           slug_tienda: null, // ⚠️ IMPORTANTE: Nace en NULL para obligar config
+           slug_tienda: null, 
            nombre_negocio: 'Mi Negocio', 
            template: 'tienda', 
            plan: 'none' 
@@ -112,10 +111,33 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
     }
 
     if (shop) {
+      // --- MAGIA AQUÍ: SINCRONIZAR NOMBRE DE GOOGLE/REGISTRO ---
+      let nombreFinal = shop.nombre_dueno || '';
+      let apellidoFinal = shop.apellido_dueno || '';
+      
+      // Si en la base de datos están vacíos, miramos los metadatos de Google/Registro
+      if (!nombreFinal) {
+          const meta = user.user_metadata;
+          // Google usa 'given_name', nuestro registro manual usa 'first_name'
+          const nombreMeta = meta.first_name || meta.given_name || ''; 
+          const apellidoMeta = meta.last_name || meta.family_name || '';
+
+          if (nombreMeta) {
+              nombreFinal = nombreMeta;
+              apellidoFinal = apellidoMeta;
+              
+              // GUARDAMOS ESTO EN LA BASE DE DATOS PARA QUE YA QUEDE FIJO
+              await supabase.from('shops').update({
+                  nombre_dueno: nombreFinal,
+                  apellido_dueno: apellidoFinal
+              }).eq('id', shop.id);
+          }
+      }
+      // -----------------------------------------------------------
+
       const tipoNecesario = getTipo(shop.template);
       let { data: items } = await supabase.from('products').select('*').eq('shop_id', shop.id).eq('tipo', tipoNecesario).order('created_at', { ascending: true });
 
-      // Si no hay productos, crear los defaults
       if (!items || items.length === 0) {
          const defaults = getDefaults(shop.template);
          const toInsert = defaults.map(p => ({ ...p, shop_id: shop.id, imagen_url: (p as any).imagen_url }));
@@ -146,16 +168,17 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
           personal: shop.whatsapp_personal || ''
       };
 
+      // --- SALUDO DEL PANEL ---
       let nombreVisual = user.email?.split('@')[0] || 'Admin';
-      if (shop.nombre_dueno) {
-          nombreVisual = shop.nombre_dueno;
-          if (shop.apellido_dueno) nombreVisual += ` ${shop.apellido_dueno.charAt(0).toUpperCase()}.`;
+      if (nombreFinal) {
+          nombreVisual = nombreFinal;
+          if (apellidoFinal) nombreVisual += ` ${apellidoFinal.charAt(0).toUpperCase()}.`;
       }
 
       setShopData({
         id: shop.id, 
         email: user.email || '', 
-        nombreAdmin: nombreVisual, 
+        nombreAdmin: nombreVisual, // Ahora usará el nombre real
         template: shop.template, 
         slug: currentSlugs[shop.template] || '', slugs: currentSlugs,
         logos: currentLogos, logo: currentLogos[shop.template] || '',
@@ -166,11 +189,11 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
         whatsapps: currentWhatsapps,
         plantillaVisual: shop.plantilla_visual || 'Minimal', personalTheme: shop.personal_theme || 'glass', 
         plan: shop.plan || 'none', 
-        nombreDueno: shop.nombre_dueno || '', apellidoDueno: shop.apellido_dueno || '', 
+        nombreDueno: nombreFinal,      // Se rellena automático
+        apellidoDueno: apellidoFinal,  // Se rellena automático
         templateLocked: shop.template_locked || null, lastTemplateChange: shop.last_template_change, changeCount: shop.change_count || 0,
         productos: items?.map(p => ({ id: p.id, titulo: p.titulo, descripcion: p.descripcion, precio: p.precio, galeria: p.galeria || [], url: p.url_destino, shop_id: p.shop_id, tipo: p.tipo, imagen: p.imagen_url })) || [],
         
-        // --- MAPEO DE CAMPOS DE SUSCRIPCIÓN ---
         subscription_status: shop.subscription_status || 'trial',
         trial_start_date: shop.trial_start_date || shop.created_at,
         mp_subscription_id: shop.mp_subscription_id || '',
@@ -360,7 +383,6 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
   const changePassword = async (p: string) => (await supabase.auth.updateUser({ password: p })).error;
   const manualSave = async () => true; 
   
-  // --- FUNCIÓN AGREGAR PRODUCTO (CORREGIDA) ---
   const addProduct = async (prod: Product) => { 
       if (!canEdit() || !shopData.id) return; 
       const tipoActual = getTipo(shopData.template); 
@@ -370,7 +392,7 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
           titulo: prod.titulo, 
           descripcion: prod.descripcion, 
           precio: prod.precio, 
-          galeria: prod.galeria || [], // Guardamos el array completo
+          galeria: prod.galeria || [],
           url_destino: prod.url, 
           tipo: tipoActual, 
           imagen_url: prod.imagen 
