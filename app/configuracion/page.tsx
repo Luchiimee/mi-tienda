@@ -1,46 +1,53 @@
 'use client';
 
 import { useState, useEffect, Suspense } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation'; // 👈 IMPORTANTE
+import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import { useShop } from '../context/ShopContext';
 import Sidebar from '../components/Sidebar';
 import { DOMAIN_URL } from '@/lib/constants';
 
-// Componente interno para manejar la lógica de la URL (Requerido por Next.js)
 function ConfiguracionContent() {
   const { shopData, updateProfile, changePassword, updateTemplateSlug, resetTemplate, activateTrial } = useShop();
   const router = useRouter();
-  const searchParams = useSearchParams(); // 👈 Para leer la URL
+  const searchParams = useSearchParams();
 
   const [newPass, setNewPass] = useState('');
   const [loadingPass, setLoadingPass] = useState(false);
   const [loadingPago, setLoadingPago] = useState(false);
   const [loadingPlan, setLoadingPlan] = useState(false);
+  const [loadingCancel, setLoadingCancel] = useState(false); // Estado para cancelar
 
   const [editingSlugs, setEditingSlugs] = useState<{[key:string]: string}>({});
   
-  // Estado para SELECCIONAR qué plan quiere pagar
+  // Estado para la selección VISUAL de planes
   const [selectedPlan, setSelectedPlan] = useState<'simple' | 'full'>('full');
   const [selectedTemplate, setSelectedTemplate] = useState<string>('');
 
   const PRECIO_SIMPLE = 15200;
   const PRECIO_FULL = 20100;
 
-  // Lógica de días restantes
+  // Lógica de fechas
   const trialStart = new Date(shopData.trial_start_date || shopData.created_at || new Date());
   const today = new Date();
   const diffTime = Math.abs(today.getTime() - trialStart.getTime());
   const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
   const daysLeft = Math.max(0, 14 - diffDays);
   const isExpired = daysLeft === 0;
+  const isTrial = shopData.subscription_status === 'trial';
+  const isActive = shopData.subscription_status === 'active';
 
   useEffect(() => { setEditingSlugs(shopData.slugs); }, [shopData.slugs]);
   
+  // Sincronizar selección inicial con lo que tiene el usuario
   useEffect(() => {
-      if (shopData.plan === 'simple') setSelectedPlan('simple');
-      else setSelectedPlan('full'); 
-  }, [shopData.plan]);
+      if (shopData.plan === 'simple') {
+          setSelectedPlan('simple');
+          if(shopData.templateLocked) setSelectedTemplate(shopData.templateLocked);
+      } else {
+          setSelectedPlan('full'); 
+      }
+  }, [shopData.plan, shopData.templateLocked]);
 
   useEffect(() => {
     const checkUser = async () => {
@@ -50,67 +57,58 @@ function ConfiguracionContent() {
     checkUser();
   }, [router]);
 
-  // --- 🎣 DETECCIÓN DE RETORNO DE MERCADO PAGO ---
+  // --- DETECCIÓN DE PAGO EXITOSO ---
   useEffect(() => {
     const status = searchParams.get('status');
     const collectionStatus = searchParams.get('collection_status');
+    const preapprovalId = searchParams.get('preapproval_id'); // ID de suscripción de MP
 
     if ((status === 'success' || collectionStatus === 'approved') && shopData.id) {
-        
         const activarCuenta = async () => {
-            // Actualizamos el estado a 'active' en la base de datos
-            const { error } = await supabase
-                .from('shops')
-                .update({ subscription_status: 'active' })
-                .eq('id', shopData.id);
+            // Guardamos el estado active Y el ID de la suscripción para poder cancelarla luego
+            const updates: any = { subscription_status: 'active' };
+            if (preapprovalId) updates.mp_subscription_id = preapprovalId;
+
+            const { error } = await supabase.from('shops').update(updates).eq('id', shopData.id);
 
             if (!error) {
-                alert("🎉 ¡Pago confirmado! Tu suscripción ahora está ACTIVA.");
-                // Limpiamos la URL para que no salga el alert cada vez que refresca
+                alert("🎉 ¡Suscripción confirmada y ACTIVA!");
                 router.replace('/configuracion');
-                // Recargamos para actualizar la interfaz visualmente
                 setTimeout(() => window.location.reload(), 1000);
             }
         };
-
-        // Solo ejecutamos si aún no está activa para evitar llamadas dobles
-        if (shopData.subscription_status !== 'active') {
-            activarCuenta();
-        }
+        if (shopData.subscription_status !== 'active') activarCuenta();
     }
   }, [searchParams, shopData.id, shopData.subscription_status, router]);
-  // ----------------------------------------------------
 
+  // --- LÓGICA ACTIVAR PRUEBA GRATIS (O CAMBIAR PLAN EN TRIAL) ---
   const handlePlanActivation = async () => {
     setLoadingPlan(true);
-    let success = false;
-
-    if (selectedPlan === 'full') {
-        success = await activateTrial('full');
-    } else if (selectedPlan === 'simple') {
-        if (!selectedTemplate) {
-            alert("⚠️ Por favor selecciona una plantilla para el Plan Básico.");
-            setLoadingPlan(false);
-            return;
-        }
-        success = await activateTrial('simple', selectedTemplate);
+    
+    // Validaciones
+    if (selectedPlan === 'simple' && !selectedTemplate) {
+        alert("⚠️ Para el Plan Básico debes elegir una plantilla.");
+        setLoadingPlan(false);
+        return;
     }
 
+    // Ejecutamos la lógica del contexto
+    const success = await activateTrial(selectedPlan, selectedPlan === 'simple' ? selectedTemplate : undefined);
     setLoadingPlan(false);
     
     if (success) {
-        alert("🎉 ¡Prueba activada! Ya puedes editar tu tienda.");
+        alert(isTrial ? "✅ Plan actualizado correctamente." : "🎉 ¡Prueba activada! Disfruta tus 14 días.");
         router.refresh(); 
     } else {
-        alert("Error al activar el plan. Intenta nuevamente.");
+        alert("Hubo un error al actualizar el plan.");
     }
   };
 
+  // --- LÓGICA PAGAR (MERCADO PAGO) ---
   const handleSubscribe = async () => {
       setLoadingPago(true);
       try {
-        // 1. Guardamos el plan seleccionado ANTES de ir a pagar
-        // Así cuando vuelva, ya tiene el plan correcto asignado en la BD
+        // 1. Guardamos la preferencia de plan antes de ir a MP
         const updates: any = { plan: selectedPlan };
         if (selectedPlan === 'simple' && selectedTemplate) {
             updates.template_locked = selectedTemplate;
@@ -118,7 +116,7 @@ function ConfiguracionContent() {
         }
         await updateProfile(updates);
 
-        // 2. Generamos el pago
+        // 2. Llamamos a la API
         const priceToPay = selectedPlan === 'full' ? PRECIO_FULL : PRECIO_SIMPLE;
         const response = await fetch('/api/crear-suscripcion', {
             method: 'POST',
@@ -132,19 +130,49 @@ function ConfiguracionContent() {
         });
 
         const data = await response.json();
-        
-        if (!response.ok) throw new Error(data.error || 'Error en el servidor de pagos');
-        
-        if (data.url) {
-            window.location.href = data.url;
-        } else {
-            alert('No se recibió el link de pago.');
-        }
+        if (!response.ok) throw new Error(data.error);
+        if (data.url) window.location.href = data.url;
+        else alert('Error: No se recibió link de pago.');
+
       } catch (error: any) {
           console.error(error);
           alert(`Error: ${error.message}`);
       } finally {
           setLoadingPago(false);
+      }
+  };
+
+  // --- LÓGICA CANCELAR SUSCRIPCIÓN ---
+  const handleCancelSubscription = async () => {
+      if(!shopData.mp_subscription_id) return alert("No tienes una suscripción activa vinculada.");
+      
+      if(!confirm("⚠️ ¿Estás seguro de cancelar tu suscripción?\n\n- Se detendrá el cobro automático.\n- Al finalizar el período pagado, tu cuenta volverá a modo restringido.")) return;
+
+      setLoadingCancel(true);
+      try {
+          // 1. Cancelar en Mercado Pago
+          const res = await fetch('/api/cancelar-suscripcion', {
+              method: 'POST',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({ subscriptionId: shopData.mp_subscription_id })
+          });
+          
+          if(!res.ok) throw new Error("Error al conectar con Mercado Pago");
+
+          // 2. Actualizar base de datos local
+          await supabase.from('shops').update({ 
+              subscription_status: 'cancelled',
+              plan: 'none', // Opcional: bajar a none o dejarlo hasta que expire
+              mp_subscription_id: null
+          }).eq('id', shopData.id);
+
+          alert("✅ Suscripción cancelada. No se realizarán más cobros.");
+          window.location.reload();
+
+      } catch (error:any) {
+          alert("Error: " + error.message);
+      } finally {
+          setLoadingCancel(false);
       }
   };
 
@@ -161,31 +189,19 @@ function ConfiguracionContent() {
       alert(`✅ Link actualizado.`);
   };
 
-  const handleDeactivate = async (tmpl: string) => {
-      if(confirm(`⚠️ ¿ELIMINAR ${tmpl.toUpperCase()}?`)) await resetTemplate(tmpl);
-  };
+  const handleDeactivate = async (tmpl: string) => { if(confirm(`⚠️ ¿ELIMINAR ${tmpl.toUpperCase()}?`)) await resetTemplate(tmpl); };
+  const handleCopy = (slug: string) => { navigator.clipboard.writeText(`${DOMAIN_URL}/${slug}`); alert("¡Link copiado!"); };
+  const handleSaveName = async () => { await updateProfile({ nombreDueno: shopData.nombreDueno, apellidoDueno: shopData.apellidoDueno }); alert("✅ Datos guardados."); };
 
-  const handleCopy = (slug: string) => {
-      navigator.clipboard.writeText(`${DOMAIN_URL}/${slug}`);
-      alert("¡Link copiado!");
-  };
-
-  const handleSaveName = async () => {
-      await updateProfile({ nombreDueno: shopData.nombreDueno, apellidoDueno: shopData.apellidoDueno });
-      alert("✅ Datos guardados.");
-  };
-
+  // Filtro de links activos
   const templatesList = [
       { id: 'tienda', label: 'Tienda Online', icon: '🛍️', color: '#3b82f6' },
       { id: 'catalogo', label: 'Catálogo Digital', icon: '📒', color: '#8b5cf6' },
       { id: 'menu', label: 'Menú Gastronómico', icon: '🍽️', color: '#f59e0b' },
       { id: 'personal', label: 'Bio Personal', icon: '🪪', color: '#ec4899' }
   ];
-
   const activeTemplates = templatesList.filter(t => {
-      if (shopData.plan === 'simple') {
-          return shopData.templateLocked === t.id && shopData.slugs[t.id];
-      }
+      if (shopData.plan === 'simple') return shopData.templateLocked === t.id && shopData.slugs[t.id];
       return shopData.slugs[t.id];
   });
 
@@ -198,25 +214,21 @@ function ConfiguracionContent() {
             <h1 style={{ margin: 0, color: '#1e293b', fontSize: 28, fontWeight: '800' }}>Configuración</h1>
         </div>
 
-        {/* --- CONTADOR DE DÍAS --- */}
+        {/* --- STATUS BAR --- */}
         <div style={{ display:'flex', justifyContent:'center', marginBottom: 30 }}>
             <div style={{ 
-                background: shopData.subscription_status === 'active' ? '#dcfce7' : (isExpired ? '#fef2f2' : 'white'), 
-                padding: '10px 25px', 
-                borderRadius: 50, 
-                border: shopData.subscription_status === 'active' ? '1px solid #22c55e' : (isExpired ? '1px solid #fca5a5' : '1px solid #e2e8f0'), 
-                display:'flex', alignItems:'center', gap:10, 
-                boxShadow:'0 4px 15px rgba(0,0,0,0.05)' 
+                background: isActive ? '#dcfce7' : (isExpired ? '#fef2f2' : 'white'), 
+                padding: '10px 25px', borderRadius: 50, 
+                border: isActive ? '1px solid #22c55e' : (isExpired ? '1px solid #fca5a5' : '1px solid #e2e8f0'), 
+                display:'flex', alignItems:'center', gap:10, boxShadow:'0 4px 15px rgba(0,0,0,0.05)' 
             }}>
-                <span style={{fontSize:20}}>
-                    {shopData.subscription_status === 'active' ? '⭐' : '⏳'}
-                </span>
+                <span style={{fontSize:20}}>{isActive ? '⭐' : '⏳'}</span>
                 <div style={{textAlign:'left'}}>
                     <div style={{fontSize:11, color:'#64748b', fontWeight:'bold', textTransform:'uppercase', letterSpacing:1}}>
-                        {shopData.subscription_status === 'active' ? 'Suscripción Activa' : 'Prueba Gratis'}
+                        {isActive ? 'Suscripción Activa' : 'Periodo de Prueba'}
                     </div>
-                    <div style={{fontSize:15, fontWeight:'bold', color: shopData.subscription_status === 'active' ? '#15803d' : (isExpired ? '#dc2626' : '#334155')}}>
-                        {shopData.subscription_status === 'active' ? '¡Todo Ilimitado!' : (isExpired ? '¡Expirado!' : `${daysLeft} días restantes`)}
+                    <div style={{fontSize:15, fontWeight:'bold', color: isActive ? '#15803d' : (isExpired ? '#dc2626' : '#334155')}}>
+                        {isActive ? '¡Todo en orden!' : (isExpired ? '¡Tiempo Agotado!' : `${daysLeft} días restantes`)}
                     </div>
                 </div>
             </div>
@@ -229,18 +241,14 @@ function ConfiguracionContent() {
                 <h3 style={{ marginTop: 0, fontSize: 16, color: '#334155', display:'flex', alignItems:'center', gap:8, marginBottom:20 }}>
                     🚀 <span style={{fontWeight:'bold'}}>Mis Links Activos</span>
                 </h3>
-                
                 {activeTemplates.length > 0 ? (
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 15 }}>
                         {activeTemplates.map((t) => (
                             <div key={t.id} style={{ background: 'white', padding: 15, borderRadius: 12, border: '1px solid #e2e8f0', boxShadow: '0 2px 5px rgba(0,0,0,0.03)', display: 'flex', flexDirection: 'column', gap: 10, position: 'relative', overflow: 'hidden' }}>
                                 <div style={{position:'absolute', left:0, top:0, bottom:0, width:4, background: t.color}}></div>
                                 <div style={{display:'flex', alignItems:'center', justifyContent:'space-between', paddingLeft: 10}}>
-                                    <div style={{display:'flex', alignItems:'center', gap:8}}>
-                                        <span style={{fontSize:22}}>{t.icon}</span>
-                                        <span style={{fontWeight:'bold', fontSize:14, color:'#334155'}}>{t.label}</span>
-                                    </div>
-                                    <button onClick={() => handleDeactivate(t.id)} title="Eliminar" style={{background:'transparent', border:'none', cursor:'pointer', fontSize:16, opacity:0.5}}>🗑️</button>
+                                    <div style={{display:'flex', alignItems:'center', gap:8}}><span style={{fontSize:22}}>{t.icon}</span><span style={{fontWeight:'bold', fontSize:14, color:'#334155'}}>{t.label}</span></div>
+                                    <button onClick={() => handleDeactivate(t.id)} title="Desactivar" style={{background:'transparent', border:'none', cursor:'pointer', fontSize:16, opacity:0.5}}>🗑️</button>
                                 </div>
                                 <div style={{display:'flex', alignItems:'center', background:'#f8fafc', border:'1px solid #cbd5e1', borderRadius:8, padding:'5px 10px', marginLeft: 10}}>
                                     <span style={{fontSize:11, color:'#94a3b8', marginRight:2}}>{DOMAIN_URL.replace('https://','')}/</span>
@@ -263,7 +271,7 @@ function ConfiguracionContent() {
                 )}
             </div>
 
-            {/* 2. CARD PLANES */}
+            {/* 2. CARD DE PLANES (LÓGICA ACTUALIZADA) */}
             <div style={{ background: 'white', padding: 30, borderRadius: 16, boxShadow: '0 4px 20px rgba(0,0,0,0.03)', border: shopData.plan === 'none' ? '2px solid #f1c40f' : '1px solid #f1f5f9', display:'flex', flexDirection:'column' }}>
                 <h3 style={{ marginTop: 0, fontSize: 16, color: '#334155', display:'flex', alignItems:'center', gap:8, marginBottom:20 }}>
                     💳 <span style={{fontWeight:'bold'}}>Planes</span>
@@ -271,8 +279,7 @@ function ConfiguracionContent() {
                 </h3>
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 15, marginBottom: 20 }}>
-                    
-                    {/* OPCIÓN PLAN BÁSICO */}
+                    {/* BÁSICO */}
                     <div 
                         onClick={() => setSelectedPlan('simple')}
                         style={{ 
@@ -292,15 +299,17 @@ function ConfiguracionContent() {
                             <li>✅ 1 Plantilla Activa</li>
                             <li>🔒 Otras bloqueadas</li>
                         </ul>
-
-                        {/* SELECTOR DE PLANTILLA */}
-                        {shopData.plan === 'none' && selectedPlan === 'simple' && (
+                        
+                        {/* SELECTOR DE PLANTILLA (SOLO APARECE EN PLAN SIMPLE) */}
+                        {selectedPlan === 'simple' && (
                               <div style={{marginTop:10, borderTop:'1px dashed #bfdbfe', paddingTop:10}}>
                                   <label style={{fontSize:10, fontWeight:'bold', display:'block', color:'#1e40af'}}>Elige tu plantilla:</label>
                                   <select 
                                     value={selectedTemplate} 
                                     onChange={(e) => setSelectedTemplate(e.target.value)}
-                                    style={{width:'100%', padding:5, marginTop:5, fontSize:11, borderRadius:4, border:'1px solid #bfdbfe'}}
+                                    // Si ya tiene plan activo bloqueado, deshabilitamos
+                                    disabled={shopData.plan === 'simple' && isActive}
+                                    style={{width:'100%', padding:5, marginTop:5, fontSize:11, borderRadius:4, border:'1px solid #bfdbfe', opacity: (shopData.plan === 'simple' && isActive) ? 0.6 : 1}}
                                   >
                                       <option value="" disabled>-- Seleccionar --</option>
                                       <option value="tienda">Tienda</option>
@@ -312,7 +321,7 @@ function ConfiguracionContent() {
                           )}
                     </div>
 
-                    {/* OPCIÓN PLAN FULL */}
+                    {/* FULL */}
                     <div 
                         onClick={() => { setSelectedPlan('full'); setSelectedTemplate(''); }}
                         style={{ 
@@ -337,27 +346,26 @@ function ConfiguracionContent() {
 
                 <div style={{marginTop:'auto', paddingTop:15, borderTop:'1px dashed #e2e8f0'}}>
                     <p style={{margin:'0 0 10px 0', fontSize:11, color:'#64748b', textAlign:'center'}}>
-                        📅 Se cobrará automáticamente cada 30 días.<br/>
-                        Los primeros 14 días son <b>GRATIS</b>.
+                        {isActive ? 'Tu próximo cobro será automático.' : 'Los primeros 14 días son GRATIS.'}
                     </p>
 
-                    {/* BOTONES */}
-                    {shopData.plan === 'none' && (
+                    {/* BOTÓN 1: ACTIVAR PRUEBA (O CAMBIAR PLAN SI AÚN ESTÁ EN PRUEBA) */}
+                    {(!isActive && !isExpired) && (
                         <button 
                             onClick={handlePlanActivation}
-                            disabled={!selectedPlan || (selectedPlan === 'simple' && !selectedTemplate) || loadingPlan}
+                            disabled={loadingPlan || (selectedPlan === 'simple' && !selectedTemplate)}
                             style={{
                                 width: '100%', padding: 12, borderRadius: 8, border: 'none', marginBottom: 10,
-                                background: (!selectedPlan || (selectedPlan === 'simple' && !selectedTemplate)) ? '#ccc' : '#2ecc71',
+                                background: (loadingPlan || (selectedPlan === 'simple' && !selectedTemplate)) ? '#ccc' : '#2ecc71',
                                 color: 'white', fontWeight: 'bold', fontSize: 14,
-                                cursor: loadingPlan ? 'not-allowed' : 'pointer',
-                                boxShadow: '0 4px 10px rgba(46, 204, 113, 0.3)'
+                                cursor: 'pointer', boxShadow: '0 4px 10px rgba(46, 204, 113, 0.3)'
                             }}
                         >
-                            {loadingPlan ? 'Activando...' : '✅ Activar Prueba Gratis (14 Días)'}
+                            {loadingPlan ? 'Procesando...' : (shopData.plan !== 'none' ? '🔄 Actualizar Plan (Sin cargo)' : '✅ Activar Prueba Gratis (14 Días)')}
                         </button>
                     )}
 
+                    {/* BOTÓN 2: PAGAR (SIEMPRE DISPONIBLE O SI EXPIRÓ) */}
                     <button 
                         onClick={handleSubscribe} 
                         disabled={loadingPago}
@@ -369,27 +377,9 @@ function ConfiguracionContent() {
                             boxShadow: '0 4px 10px rgba(90, 153, 250, 0.3)'
                         }}
                     >
-                        {loadingPago ? 'Generando link...' : `💳 Suscripción ${selectedPlan.toUpperCase()} (Mercado Pago)`}
+                        {loadingPago ? 'Cargando...' : (isActive ? '💳 Actualizar Método de Pago' : '💳 Suscripción (Mercado Pago)')}
                     </button>
                 </div>
-
-                {shopData.plan === 'simple' && shopData.templateLocked && (
-                    <div style={{ marginTop: 20, padding: 15, background: '#fff7ed', borderRadius: 8, border: '1px solid #fed7aa' }}>
-                        <label style={{ display:'block', fontSize: 12, color: '#9a3412', fontWeight:'bold', marginBottom:8 }}>TU PLANTILLA ÚNICA:</label>
-                        <select 
-                            value={shopData.templateLocked || ''} 
-                            disabled={true} 
-                            style={{ width: '100%', padding: 10, borderRadius: 6, border: '1px solid #fdba74', color: '#9a3412', fontWeight: 'bold', cursor: 'not-allowed', background:'white', opacity: 0.7 }}
-                        >
-                            <option value="" disabled>-- Seleccionar --</option>
-                            <option value="tienda">🛒 Tienda Online</option>
-                            <option value="catalogo">📒 Catálogo</option>
-                            <option value="menu">🍽️ Menú</option>
-                            <option value="personal">🪪 Personal</option>
-                        </select>
-                        <div style={{marginTop:5, fontSize:11, color:'#ea580c'}}>🔒 Bloqueado en: <b>{shopData.templateLocked.toUpperCase()}</b></div>
-                    </div>
-                )}
             </div>
             
             {/* 3. MI PERFIL */}
@@ -397,26 +387,13 @@ function ConfiguracionContent() {
                 <h3 style={{ marginTop: 0, fontSize: 16, color: '#334155', display:'flex', alignItems:'center', gap:8, marginBottom:25 }}>
                     👤 <span style={{fontWeight:'bold'}}>Mi Perfil</span>
                 </h3>
-                
                 <div style={{display:'flex', gap:10, marginBottom:15}}>
-                    <div style={{flex:1}}>
-                        <label style={{display:'block', fontSize:11, fontWeight:'bold', color:'#64748b', marginBottom:5}}>Nombre</label>
-                        <input type="text" value={shopData.nombreDueno} onChange={(e) => updateProfile({nombreDueno: e.target.value})} style={{width:'100%', padding:10, border:'1px solid #cbd5e1', borderRadius:6, fontSize:13}} />
-                    </div>
-                    <div style={{flex:1}}>
-                        <label style={{display:'block', fontSize:11, fontWeight:'bold', color:'#64748b', marginBottom:5}}>Apellido</label>
-                        <input type="text" value={shopData.apellidoDueno} onChange={(e) => updateProfile({apellidoDueno: e.target.value})} style={{width:'100%', padding:10, border:'1px solid #cbd5e1', borderRadius:6, fontSize:13}} />
-                    </div>
+                    <div style={{flex:1}}><label style={{display:'block', fontSize:11, fontWeight:'bold', color:'#64748b', marginBottom:5}}>Nombre</label><input type="text" value={shopData.nombreDueno} onChange={(e) => updateProfile({nombreDueno: e.target.value})} style={{width:'100%', padding:10, border:'1px solid #cbd5e1', borderRadius:6, fontSize:13}} /></div>
+                    <div style={{flex:1}}><label style={{display:'block', fontSize:11, fontWeight:'bold', color:'#64748b', marginBottom:5}}>Apellido</label><input type="text" value={shopData.apellidoDueno} onChange={(e) => updateProfile({apellidoDueno: e.target.value})} style={{width:'100%', padding:10, border:'1px solid #cbd5e1', borderRadius:6, fontSize:13}} /></div>
                 </div>
                 <button onClick={handleSaveName} style={{marginBottom:20, background:'#3b82f6', color:'white', border:'none', borderRadius:4, padding:'8px 15px', fontSize:12, cursor:'pointer'}}>Guardar Nombre</button>
-
-                <div style={{marginBottom:20}}>
-                    <label style={{display:'block', fontSize:11, fontWeight:'bold', color:'#64748b', marginBottom:5}}>Email</label>
-                    <input type="text" value={shopData.email} disabled style={{width:'100%', padding:10, border:'none', borderRadius:6, background:'#f1f5f9', color:'#94a3b8', fontSize:13}} />
-                </div>
-
+                <div style={{marginBottom:20}}><label style={{display:'block', fontSize:11, fontWeight:'bold', color:'#64748b', marginBottom:5}}>Email</label><input type="text" value={shopData.email} disabled style={{width:'100%', padding:10, border:'none', borderRadius:6, background:'#f1f5f9', color:'#94a3b8', fontSize:13}} /></div>
                 <hr style={{border:'none', borderTop:'1px solid #f1f5f9', margin:'20px 0'}} />
-
                 <label style={{display:'block', fontSize:11, fontWeight:'bold', color:'#64748b', marginBottom:5}}>Contraseña</label>
                 <div style={{ display: 'flex', gap: 10 }}>
                      <input type="password" placeholder="Nueva..." value={newPass} onChange={e => setNewPass(e.target.value)} style={{ flex:1, padding: '10px', border: '1px solid #cbd5e1', borderRadius: 6, fontSize:13 }} />
@@ -424,12 +401,34 @@ function ConfiguracionContent() {
                 </div>
             </div>
 
+            {/* 4. NUEVA CARD: GESTIONAR SUSCRIPCIÓN (BAJA) */}
+            {isActive && (
+                <div style={{ background: 'white', padding: 30, borderRadius: 16, boxShadow: '0 4px 20px rgba(0,0,0,0.03)', border:'1px solid #f1f5f9' }}>
+                    <h3 style={{ marginTop: 0, fontSize: 16, color: '#334155', display:'flex', alignItems:'center', gap:8, marginBottom:20 }}>
+                        ⛔ <span style={{fontWeight:'bold'}}>Zona de Peligro</span>
+                    </h3>
+                    <p style={{fontSize:13, color:'#64748b', marginBottom:15}}>
+                        Si cancelas, perderás el acceso a las funciones de edición al finalizar tu período actual.
+                    </p>
+                    <button 
+                        onClick={handleCancelSubscription} 
+                        disabled={loadingCancel}
+                        style={{
+                            width: '100%', padding: 12, borderRadius: 8, border: '1px solid #fca5a5',
+                            background: '#fef2f2', color: '#dc2626', fontWeight: 'bold', fontSize: 13,
+                            cursor: loadingCancel ? 'not-allowed' : 'pointer'
+                        }}
+                    >
+                        {loadingCancel ? 'Cancelando...' : 'Cancelar Suscripción'}
+                    </button>
+                </div>
+            )}
+
         </div>
       </main>
   );
 }
 
-// Wrapper Principal
 export default function ConfiguracionPage() {
   return (
     <div className="contenedor-layout" style={{display:'flex'}}>

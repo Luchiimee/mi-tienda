@@ -6,7 +6,7 @@ import { useShop } from '../context/ShopContext';
 import { supabase } from '@/lib/supabaseClient'; 
 import { useRouter } from 'next/navigation';
 import { DOMAIN_URL } from '@/lib/constants';
-import UpgradeModal from './UpgradeModal'; // 👈 IMPORTAMOS EL NUEVO MODAL
+import UpgradeModal from './UpgradeModal'; 
 
 interface SidebarProps { activeTab?: 'personalizar' | 'productos' | 'configuracion'; }
 
@@ -41,10 +41,9 @@ export default function Sidebar({ activeTab = 'personalizar' }: SidebarProps) {
   const togglePlantillas = () => setPlantillasAbierto(!plantillasAbierto);
   const toggleAcordeon = (seccion: string) => setSeccionAbierta(seccionAbierta === seccion ? null : seccion);
   
-  // --- FUNCIÓN CENTRALIZADA DE SEGURIDAD (MODIFICADA) ---
+  // --- FUNCIÓN CENTRALIZADA DE SEGURIDAD ---
   const checkEdit = () => { 
       if (!canEdit()) { 
-          // En lugar de alert, mostramos el MODAL BONITO
           setShowUpgradeModal(true);
           return false; 
       } 
@@ -136,8 +135,7 @@ export default function Sidebar({ activeTab = 'personalizar' }: SidebarProps) {
   };
 
   const selectTemplate = (val: string) => { 
-      // 1. AQUI QUITAMOS EL checkEdit() PARA PERMITIR NAVEGAR LIBREMENTE
-      // Solo bloqueamos si tiene el PLAN BÁSICO ya activado y bloqueado en otra plantilla.
+      // PERMITIMOS NAVEGAR, SOLO BLOQUEAMOS SI EL PLAN LO IMPIDE
       if (shopData.plan === 'simple' && shopData.templateLocked && shopData.templateLocked !== val) {
           alert("🔒 Tu Plan Básico está bloqueado en la plantilla: " + shopData.templateLocked.toUpperCase());
           return;
@@ -168,7 +166,18 @@ export default function Sidebar({ activeTab = 'personalizar' }: SidebarProps) {
       {/* EL MODAL FLOTANTE */}
       <UpgradeModal isOpen={showUpgradeModal} onClose={() => setShowUpgradeModal(false)} />
 
-      <aside className="sidebar">
+      {/* ⚠️ AQUÍ ESTÁ EL ARREGLO VISUAL: height: 100vh y sticky */}
+      <aside 
+        className="sidebar" 
+        style={{ 
+            height: '100vh', 
+            position: 'sticky', 
+            top: 0, 
+            overflowY: 'auto',
+            display: 'flex',
+            flexDirection: 'column'
+        }}
+      >
         <div style={{marginBottom: 20}}>
           <h1 style={{fontSize:18, margin:0}}>Hola {shopData.nombreAdmin}</h1>
           <span style={{fontSize:12, color:'#95a5a6'}}>Panel Admin</span>
@@ -206,8 +215,6 @@ export default function Sidebar({ activeTab = 'personalizar' }: SidebarProps) {
                  <div className="grid-plantillas">
                   {templates.map((t) => {
                     const isSelected = shopData.template === t.id;
-                    
-                    // Lógica visual: SOLO SE VE BLOQUEADO SI YA PAGÓ EL BÁSICO Y BLOQUEÓ OTRA
                     const isLockedByPlan = shopData.plan === 'simple' && shopData.templateLocked && shopData.templateLocked !== t.id;
                     
                     return (
@@ -394,9 +401,13 @@ export default function Sidebar({ activeTab = 'personalizar' }: SidebarProps) {
             </div>
           </div>
         )}
-        <hr style={{margin:'20px 0', borderColor:'#34495e'}}/>
-        <div className="producto"><button><a href={`${DOMAIN_URL}/${shopData.slug}`} target="_blank">Ver {shopData.template} →</a></button></div>
-        <div className="cerrar-sesion"><button onClick={handleLogout} style={{color:'#ffffffff', textAlign: 'center'}}>Salir</button></div>
+        
+        {/* FOOTER PEGADO AL FINAL */}
+        <div style={{marginTop:'auto', width:'100%', borderTop:'1px solid #34495e', paddingTop: 20}}>
+             <div className="producto" style={{marginBottom:10}}><button><a href={`${DOMAIN_URL}/${shopData.slug}`} target="_blank" style={{color:'white', textDecoration:'none'}}>Ver {shopData.template} →</a></button></div>
+             <div className="cerrar-sesion"><button onClick={handleLogout} style={{color:'#ffffffff', textAlign: 'center', width:'100%', background:'transparent', border:'none', cursor:'pointer'}}>Salir</button></div>
+        </div>
+        
       </aside>
     </>
   );
