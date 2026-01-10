@@ -134,13 +134,18 @@ export default function Sidebar({ activeTab = 'personalizar' }: SidebarProps) {
       setDraggedItemIndex(null);
   };
 
-  const selectTemplate = (val: string) => { 
-      if (shopData.plan === 'simple' && shopData.templateLocked && shopData.templateLocked !== val) {
-          alert("🔒 Tu Plan Básico está bloqueado en la plantilla: " + shopData.templateLocked.toUpperCase());
-          return;
-      } 
-      changeTemplate(val); 
-      setIndexEditando(0); 
+  // --- 🚀 NUEVA LÓGICA DE SELECCIÓN CON RESTRICCIÓN ---
+  const selectTemplate = async (val: string) => { 
+      // Llamamos a la función del contexto (que ahora devuelve info si falló)
+      const result = await changeTemplate(val);
+      
+      if (!result.success) {
+          // Si falla (por los 30 días), mostramos el mensaje del contexto
+          alert(result.message);
+      } else {
+          // Si fue exitoso, reseteamos el índice de edición
+          setIndexEditando(0); 
+      }
   };
   
   const handleLogout = async () => { await supabase.auth.signOut(); router.push('/login'); };
@@ -202,7 +207,7 @@ export default function Sidebar({ activeTab = 'personalizar' }: SidebarProps) {
             </li>
             <li className={activeTab === 'configuracion' ? 'activo' : ''}><Link href="/configuracion" style={{ display: 'flex', alignItems: 'center', width: '100%', height: '100%', textDecoration: 'none', color: 'inherit' }}>⚙️ Configuración</Link></li>
             
-            {/* ⚠️ BOTÓN SECRETO SUPER ADMIN (Solo para luchiimee@gmail.com) */}
+            {/* ⚠️ BOTÓN SECRETO SUPER ADMIN (Solo para luchiimee2@gmail.com) */}
             {shopData.email === 'luchiimee2@gmail.com' && (
                 <li style={{ marginTop: 20, borderTop: '1px solid #34495e', paddingTop: 20 }} className={activeTab === 'superadmin' ? 'activo' : ''}>
                     <Link 
@@ -225,6 +230,7 @@ export default function Sidebar({ activeTab = 'personalizar' }: SidebarProps) {
                  <div className="grid-plantillas">
                   {templates.map((t) => {
                     const isSelected = shopData.template === t.id;
+                    // Ya no bloqueamos visualmente con opacidad, permitimos click para mostrar la alerta de días
                     const isLockedByPlan = shopData.plan === 'simple' && shopData.templateLocked && shopData.templateLocked !== t.id;
                     
                     return (
@@ -233,16 +239,13 @@ export default function Sidebar({ activeTab = 'personalizar' }: SidebarProps) {
                           className={`item-plantilla ${isSelected ? 'seleccionada' : ''}`} 
                           onClick={() => selectTemplate(t.id)} 
                           style={{
-                              opacity: isLockedByPlan ? 0.4 : 1, 
-                              filter: isLockedByPlan ? 'grayscale(100%)' : 'none', 
-                              cursor: isLockedByPlan ? 'not-allowed' : 'pointer', 
+                              // Mantenemos visualmente sutil que está "bloqueado" pero permitimos click para ver el mensaje
                               border: isSelected && (shopData.plan==='simple' && shopData.templateLocked) ? '2px solid #f1c40f' : ''
                           }}
-                          title={isLockedByPlan ? "🔒 Plantilla no disponible en tu Plan Básico actual" : t.label}
                       >
                           <div className="icono-grande">{t.icon}</div>
                           <span style={{textTransform:'capitalize', fontWeight:'bold'}}>
-                              {t.label} {isLockedByPlan && '🔒'}
+                              {t.label} {isLockedByPlan && '⏳'}
                           </span>
                       </div>
                     );
