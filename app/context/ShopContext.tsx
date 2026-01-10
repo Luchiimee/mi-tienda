@@ -21,7 +21,7 @@ export interface Product {
 
 interface ShopData {
   id: string;
-  email: string; // Agregamos email aquí
+  email: string;
   slug: string;
   slugs: { [key: string]: string }; 
   template: string;
@@ -31,6 +31,10 @@ interface ShopData {
   whatsapp: string;
   logo: string;
   logos: { [key: string]: string }; 
+  
+  // ⚠️ AGREGADO PARA CORREGIR ERROR VERCEL
+  plantillaVisual: string; 
+  
   personalTheme: string; 
   productos: Product[];
   
@@ -38,7 +42,7 @@ interface ShopData {
   nombreAdmin: string; 
   nombreDueno: string;
   apellidoDueno: string;
-  telefonoDueno: string; // Nuevo campo
+  telefonoDueno: string;
 
   // Suscripción
   plan: 'none' | 'simple' | 'full';
@@ -85,6 +89,7 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
     whatsapp: '',
     logo: '',
     logos: {},
+    plantillaVisual: 'Clásica', // Valor por defecto
     personalTheme: 'minimal',
     productos: [],
     nombreAdmin: '', 
@@ -115,12 +120,11 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
         .single();
 
       if (error && error.code === 'PGRST116') {
-        // Si no existe tienda, crearla
         const { data: newShop, error: createError } = await supabase
           .from('shops')
           .insert([{ 
               user_id: session.user.id, 
-              email: userEmail, // Guardamos el email al crear
+              email: userEmail,
               slug: `tienda-${Date.now()}`,
               config: {},
               products: [],
@@ -136,25 +140,22 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
       }
 
       // --- LÓGICA DE SUPER ADMIN (MODO DIOS) ---
-      // Si eres tú, te damos todo FULL y ACTIVO automáticamente en el estado local
       if (userEmail === ADMIN_EMAIL) {
           console.log("👑 Modo Super Admin activado para:", userEmail);
           shop.plan = 'full';
           shop.subscription_status = 'active';
       }
 
-      // Parsear datos
       const currentConfig = shop.config || {};
       const currentProducts = shop.products || [];
       const currentSlugs = shop.slugs || {}; 
       const currentLogos = shop.logos || {};
 
-      // Detectar slug actual según la plantilla
       const activeSlug = currentSlugs[currentConfig.template || 'tienda'] || shop.slug;
 
       setShopData({
         id: shop.id,
-        email: userEmail || '', // Aseguramos que esté en el estado
+        email: userEmail || '',
         slug: activeSlug,
         slugs: currentSlugs,
         template: currentConfig.template || 'tienda',
@@ -164,19 +165,19 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
         whatsapp: currentConfig.whatsapp || '',
         logo: currentConfig.logo || '',
         logos: currentLogos,
+        plantillaVisual: currentConfig.plantillaVisual || 'Clásica', // Recuperamos de config
         personalTheme: currentConfig.personalTheme || 'minimal',
         productos: currentProducts,
         nombreAdmin: shop.nombre_dueno || session.user.email?.split('@')[0] || 'Usuario',
         nombreDueno: shop.nombre_dueno || '',
         apellidoDueno: shop.apellido_dueno || '',
-        telefonoDueno: shop.telefono_dueno || '', // Cargamos el teléfono
+        telefonoDueno: shop.telefono_dueno || '',
         plan: shop.plan || 'none',
         subscription_status: shop.subscription_status || 'trial',
         trial_start_date: shop.trial_start_date,
         mp_subscription_id: shop.mp_subscription_id
       });
 
-      // Asegurar que el email esté guardado en la tabla pública (para el Super Admin Panel)
       if (!shop.email && userEmail) {
           await supabase.from('shops').update({ email: userEmail }).eq('id', shop.id);
       }
@@ -197,6 +198,7 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
         descripcion: shopData.descripcion,
         whatsapp: shopData.whatsapp,
         logo: shopData.logo,
+        plantillaVisual: shopData.plantillaVisual, // Guardamos también esto
         personalTheme: shopData.personalTheme
       };
 
@@ -205,7 +207,7 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
         .update({ 
             config: configToSave,
             products: shopData.productos,
-            logos: shopData.logos // Guardamos mapa de logos
+            logos: shopData.logos 
         })
         .eq('id', shopData.id);
 
@@ -217,28 +219,23 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  // Guardado automático con debounce (opcional, dejamos el manual como principal si prefieres)
   useEffect(() => {
     const timer = setTimeout(() => {
       if (shopData.id) manualSave(); 
     }, 2000);
     return () => clearTimeout(timer);
-  }, [shopData.template, shopData.nombreNegocio, shopData.descripcion, shopData.whatsapp, shopData.logo, shopData.productos, shopData.personalTheme]);
+  }, [shopData.template, shopData.nombreNegocio, shopData.descripcion, shopData.whatsapp, shopData.logo, shopData.productos, shopData.personalTheme, shopData.plantillaVisual]);
 
-  // Actualizar config local
   const updateConfig = (newData: Partial<ShopData>) => {
     setShopData(prev => {
-        // Si cambia el logo, lo guardamos en el mapa de logos específico
         let newLogos = { ...prev.logos };
         if (newData.logo) {
             newLogos[prev.template] = newData.logo;
         }
-
         return { ...prev, ...newData, logos: newLogos };
     });
   };
 
-  // Gestión de Productos
   const updateProduct = (id: string, updatedProduct: Partial<Product>) => {
     setShopData(prev => ({
       ...prev,
@@ -247,7 +244,6 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const addProduct = async (product: Product) => {
-    // Asignar el tipo según la plantilla actual al crear
     let tipo = 'producto';
     if(shopData.template === 'menu') tipo = 'gastronomia';
     if(shopData.template === 'personal') tipo = 'enlace';
@@ -268,24 +264,19 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
     }));
   };
 
-  // --- Cambio de Plantilla (Con lógica de slugs y logos) ---
   const changeTemplate = (newTemplate: string) => {
-      // Recuperar el slug guardado para esta plantilla
       const savedSlug = shopData.slugs[newTemplate]; 
-      
-      // Recuperar logo guardado
       const savedLogo = shopData.logos[newTemplate] || '';
 
       setShopData(prev => ({
           ...prev,
           template: newTemplate,
-          slug: savedSlug || prev.slug, // Si no tiene, mantiene el actual temporalmente
+          slug: savedSlug || prev.slug, 
           logo: savedLogo
       }));
   };
 
   const updateTemplateSlug = async (template: string, newSlug: string) => {
-      // Guardar en la BD el slug específico para esa plantilla
       const newSlugs = { ...shopData.slugs, [template]: newSlug };
       
       const { error } = await supabase
@@ -302,16 +293,11 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
       }
   };
 
-  // --- Actualizar Perfil del Dueño (AHORA CON TELÉFONO Y EMAIL) ---
   const updateProfile = async (data: { nombreDueno?: string; apellidoDueno?: string; telefonoDueno?: string }) => {
       const updates: any = {};
       if (data.nombreDueno !== undefined) updates.nombre_dueno = data.nombreDueno;
       if (data.apellidoDueno !== undefined) updates.apellido_dueno = data.apellidoDueno;
-      
-      // ⚠️ AQUÍ ESTÁ LA MAGIA DEL TELÉFONO:
       if (data.telefonoDueno !== undefined) updates.telefono_dueno = data.telefonoDueno;
-
-      // Aseguramos también el email por si acaso
       if (shopData.email) updates.email = shopData.email;
 
       const { error } = await supabase
@@ -333,7 +319,6 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
       return error;
   };
 
-  // Resetea una plantilla a "estado de fábrica" (quita su slug)
   const resetTemplate = async (tmpl: string) => {
       const newSlugs = { ...shopData.slugs };
       delete newSlugs[tmpl];
@@ -350,21 +335,20 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
   const activateTrial = async (plan: 'simple' | 'full', template?: string) => {
       const updates: any = { 
           plan, 
-          subscription_status: 'trial', // Ojo: Si eres Admin, esto se sobrescribe al cargar
+          subscription_status: 'trial', 
           trial_start_date: new Date().toISOString()
       };
       
       if (plan === 'simple' && template) {
           updates.template_locked = template;
-          updates.template = template; // Forzamos cambio visual
+          updates.template = template; 
       } else if (plan === 'full') {
-          updates.template_locked = null; // Liberamos
+          updates.template_locked = null;
       }
 
       const { error } = await supabase.from('shops').update(updates).eq('id', shopData.id);
       
       if (!error) {
-          // Actualizamos local
           setShopData(prev => ({
              ...prev,
              plan,
@@ -377,15 +361,11 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
       return false;
   };
 
-  // --- PERMISOS (Bloqueo de edición) ---
   const canEdit = () => {
-      // 👑 MODO DIOS: Si eres tú, siempre TRUE
       if (shopData.email === ADMIN_EMAIL) return true;
 
-      // Resto de mortales
       if (shopData.subscription_status === 'active') return true;
       
-      // Lógica de Trial (14 días)
       if (shopData.subscription_status === 'trial' && shopData.trial_start_date) {
           const start = new Date(shopData.trial_start_date);
           const now = new Date();
@@ -393,7 +373,7 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
           return diffDays <= 14; 
       }
       
-      return false; // Ni activo ni trial válido
+      return false; 
   };
 
   return (
@@ -412,4 +392,4 @@ export const useShop = () => {
     throw new Error('useShop debe usarse dentro de un ShopProvider');
   }
   return context;
-}
+};
