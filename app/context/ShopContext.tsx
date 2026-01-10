@@ -5,7 +5,6 @@ import { supabase } from '@/lib/supabaseClient';
 
 const ADMIN_EMAIL = 'luchiimee2@gmail.com'.toLowerCase();
 
-// --- DATOS POR DEFECTO ---
 const DEFAULT_TIENDA = [
   { titulo: 'Remera Básica', descripcion: 'Algodón 100% premium.', precio: '12000', galeria: [], imagen_url: 'https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?auto=format&fit=crop&w=500&q=60', tipo: 'producto' },
   { titulo: 'Jean Slim Fit', descripcion: 'Denim elastizado azul.', precio: '45000', galeria: [], imagen_url: 'https://images.unsplash.com/photo-1542272617-08f086303293?auto=format&fit=crop&w=500&q=60', tipo: 'producto' }
@@ -23,9 +22,7 @@ const DEFAULT_LINKS = [
   { titulo: 'Mi Instagram', url_destino: 'https://instagram.com', descripcion: '', precio: '', galeria: [], tipo: 'enlace' }
 ];
 
-export type Product = { 
-    id: string; titulo: string; descripcion: string; precio: string; galeria?: string[]; url?: string; shop_id?: string; tipo?: string; imagen?: string; imagen_url?: string; 
-};
+export type Product = { id: string; titulo: string; descripcion: string; precio: string; galeria?: string[]; url?: string; shop_id?: string; tipo?: string; imagen?: string; imagen_url?: string; };
 
 type ShopData = {
   id?: string; email: string; nombreAdmin: string; template: string; slug: string; slugs: { [key: string]: string }; logos: { [key: string]: string }; 
@@ -57,7 +54,6 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
     try {
         const { data: { user } } = await supabase.auth.getSession().then(res => res.data.session ? { data: { user: res.data.session.user } } : { data: { user: null } });
         if (!user || !user.email) { setLoading(false); return; }
-        
         const userEmail = user.email.toLowerCase();
         let { data: shop } = await supabase.from('shops').select('*').eq('owner_id', user.id).maybeSingle();
 
@@ -105,9 +101,7 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
             nombres: currentNombres, descripciones: currentDesc, whatsapp: currentWhatsapps[shop.template] || '', whatsapps: currentWhatsapps,
             plantillaVisual: shop.plantilla_visual || 'Minimal', personalTheme: shop.personal_theme || 'glass', plan: shop.plan || 'none', 
             nombreDueno: nombreFinal, apellidoDueno: apellidoFinal, telefonoDueno: telefonoFinal,
-            templateLocked: shop.template_locked || null, 
-            lastTemplateChange: shop.last_template_change, // ✅ Cargamos la fecha
-            changeCount: shop.change_count || 0,
+            templateLocked: shop.template_locked || null, lastTemplateChange: shop.last_template_change, changeCount: shop.change_count || 0,
             productos: items?.map(p => ({ id: p.id, titulo: p.titulo, descripcion: p.descripcion, precio: p.precio, galeria: p.galeria || [], url: p.url_destino, shop_id: p.shop_id, tipo: p.tipo, imagen: p.imagen_url })) || [],
             subscription_status: shop.subscription_status || 'trial', trial_start_date: shop.trial_start_date || shop.created_at, mp_subscription_id: shop.mp_subscription_id || '', plan_price: shop.plan_price || 0
           });
@@ -131,40 +125,53 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
       if (!shopData.id) return;
       const now = new Date().toISOString();
       const updates: any = { plan: selectedPlan, subscription_status: 'trial', trial_start_date: now };
-      if (selectedPlan === 'simple' && selectedTemplate) { updates.template = selectedTemplate; updates.template_locked = selectedTemplate; } 
-      else if (selectedPlan === 'full') { updates.template_locked = null; }
+      
+      // Al activar Básico, fijamos la fecha de cambio para que empiecen a correr los 30 días
+      if (selectedPlan === 'simple' && selectedTemplate) { 
+          updates.template = selectedTemplate; 
+          updates.template_locked = selectedTemplate;
+          updates.last_template_change = now; // ✅ IMPORTANTE
+      } else if (selectedPlan === 'full') { 
+          updates.template_locked = null; 
+      }
+      
       const { error } = await supabase.from('shops').update(updates).eq('id', shopData.id);
       if (!error) {
-          setShopData(prev => ({ ...prev, plan: selectedPlan, subscription_status: 'trial', trial_start_date: now, template: (selectedPlan === 'simple' && selectedTemplate) ? selectedTemplate : prev.template, templateLocked: (selectedPlan === 'simple' && selectedTemplate) ? selectedTemplate : null }));
+          setShopData(prev => ({ 
+              ...prev, plan: selectedPlan, subscription_status: 'trial', trial_start_date: now, 
+              template: (selectedPlan === 'simple' && selectedTemplate) ? selectedTemplate : prev.template, 
+              templateLocked: (selectedPlan === 'simple' && selectedTemplate) ? selectedTemplate : null,
+              lastTemplateChange: (selectedPlan === 'simple') ? now : prev.lastTemplateChange
+          }));
           return true;
       }
       return false;
   };
 
-  // --- 🚀 CAMBIO DE PLANTILLA CON RESTRICCIÓN DE 30 DÍAS ---
   const changeTemplate = async (newTemplate: string): Promise<{success: boolean, message?: string}> => {
-    // Si ya es la misma, no hacemos nada (permitimos "ver")
     if (shopData.template === newTemplate) return { success: true };
 
-    // LÓGICA DE RESTRICCIÓN PLAN BÁSICO
+    // --- RESTRICCIÓN DE 30 DÍAS (PLAN SIMPLE) ---
     if (shopData.plan === 'simple') {
-        // Si nunca cambió o no está bloqueada, permitimos (primera vez o migración)
-        if (shopData.lastTemplateChange && shopData.templateLocked) {
+        // Si no está bloqueada, es la primera vez, dejamos pasar.
+        // Pero si ya está bloqueada Y hay fecha de cambio, verificamos.
+        if (shopData.templateLocked && shopData.lastTemplateChange) {
             const lastChange = new Date(shopData.lastTemplateChange);
             const now = new Date();
+            
+            // Calculamos diferencia en milisegundos
             const diffTime = Math.abs(now.getTime() - lastChange.getTime());
-            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-            const daysRemaining = 30 - diffDays;
-
-            if (daysRemaining > 0) {
-                // Bloquear cambio
-                return { success: false, message: `⚠️ Plan Básico: Solo puedes cambiar plantilla cada 30 días. Faltan ${daysRemaining} días.` };
+            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
+            
+            // Si pasaron menos de 30 días, bloqueamos
+            if (diffDays < 30) {
+                const remaining = 30 - diffDays;
+                return { success: false, message: `🔒 Plan Básico: Solo puedes cambiar de plantilla cada 30 días. Faltan ${remaining} días.` };
             }
         }
-        // Si pasaron los 30 días o es la primera vez, actualizamos el timestamp
     }
     
-    // Actualización Visual
+    // Si pasa la validación:
     setShopData(prev => ({ 
         ...prev, template: newTemplate, productos: [], 
         logo: prev.logos[newTemplate] || '', slug: prev.slugs[newTemplate] || '',
@@ -172,21 +179,18 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
     }));
     
     if (shopData.id) {
-       // Guardamos el cambio y el timestamp si es Plan Básico
        const now = new Date().toISOString();
        const updates: any = { template: newTemplate };
        
+       // Si es simple, actualizamos el bloqueo y la fecha
        if (shopData.plan === 'simple') {
            updates.template_locked = newTemplate;
            updates.last_template_change = now;
-           
-           // Actualizamos estado local también
            setShopData(prev => ({ ...prev, templateLocked: newTemplate, lastTemplateChange: now }));
        }
 
        await supabase.from('shops').update(updates).eq('id', shopData.id);
 
-       // Recargar productos
        const tipoNecesario = getTipo(newTemplate);
        let { data: items } = await supabase.from('products').select('*').eq('shop_id', shopData.id).eq('tipo', tipoNecesario).order('created_at', { ascending: true });
        if (!items || items.length === 0) {
