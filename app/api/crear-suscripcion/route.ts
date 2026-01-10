@@ -3,13 +3,13 @@ import { MercadoPagoConfig, PreApproval } from 'mercadopago';
 
 export async function POST(req: Request) {
   try {
-    // 1. Diagnóstico de Token (Solo se verá en tu terminal de VS Code)
+    // 1. Diagnóstico de Token
     const token = process.env.MP_ACCESS_TOKEN;
     console.log("------------------------------------------------");
     console.log("🔍 INTENTO DE SUSCRIPCIÓN");
-    console.log("🔍 Token configurado:", token ? `SI (Empieza con ${token.substring(0, 10)}...)` : "NO ❌");
     
     if (!token) {
+      console.error("❌ ERROR: No hay token MP configurado");
       return NextResponse.json(
         { error: "Falta configurar MP_ACCESS_TOKEN en el servidor." }, 
         { status: 500 }
@@ -33,10 +33,11 @@ export async function POST(req: Request) {
         auto_recurring: {
           frequency: 1,
           frequency_type: 'months',
-          transaction_amount: price,
+          transaction_amount: Number(price), // Aseguramos que sea número
           currency_id: 'ARS',
         },
-        back_url: `${process.env.NEXT_PUBLIC_BASE_URL}/configuracion?status=success`,
+        // ⚠️ CAMBIO CLAVE: Usamos tu dominio real para evitar errores de variable de entorno
+        back_url: 'https://snappy.uno/configuracion?status=success',
         payer_email: email,
         external_reference: shopId,
         status: 'pending',
@@ -48,7 +49,6 @@ export async function POST(req: Request) {
 
   } catch (error: any) {
     console.error("❌ ERROR MERCADO PAGO:", error);
-    // Devolvemos el error en JSON para que el frontend no se rompa con "Unexpected end..."
     return NextResponse.json(
       { error: error.message || "Error desconocido en MP" }, 
       { status: 500 }

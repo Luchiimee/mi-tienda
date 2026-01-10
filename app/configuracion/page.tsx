@@ -54,7 +54,7 @@ export default function ConfiguracionPage() {
     checkUser();
   }, [router]);
 
-  // --- FUNCIÓN NUEVA: ACTIVAR PRUEBA GRATIS ---
+  // --- FUNCIÓN: ACTIVAR PRUEBA GRATIS ---
   const handlePlanActivation = async () => {
     setLoadingPlan(true);
     let success = false;
@@ -74,18 +74,20 @@ export default function ConfiguracionPage() {
     
     if (success) {
         alert("🎉 ¡Prueba activada! Ya puedes editar tu tienda.");
-        router.refresh(); // Recargar para ver cambios
+        router.refresh(); 
     } else {
         alert("Error al activar el plan. Intenta nuevamente.");
     }
   };
 
+  // --- FUNCIÓN: PAGAR MERCADO PAGO ---
   const handleSubscribe = async () => {
       setLoadingPago(true);
       try {
         const priceToPay = selectedPlan === 'full' ? PRECIO_FULL : PRECIO_SIMPLE;
 
-        const response = await fetch('/api/subscribe', {
+        // ⚠️ CORRECCIÓN AQUÍ: Apuntamos a tu ruta real
+        const response = await fetch('/api/crear-suscripcion', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -229,11 +231,10 @@ export default function ConfiguracionPage() {
                 )}
             </div>
 
-            {/* 2. CARD PLANES (DISEÑO ORIGINAL) */}
-            <div style={{ background: 'white', padding: 30, borderRadius: 16, boxShadow: '0 4px 20px rgba(0,0,0,0.03)', border:'1px solid #f1f5f9', display:'flex', flexDirection:'column' }}>
+            {/* 2. CARD PLANES (DISEÑO SOLICITADO) */}
+            <div style={{ background: 'white', padding: 30, borderRadius: 16, boxShadow: '0 4px 20px rgba(0,0,0,0.03)', border: shopData.plan === 'none' ? '2px solid #f1c40f' : '1px solid #f1f5f9', display:'flex', flexDirection:'column' }}>
                 <h3 style={{ marginTop: 0, fontSize: 16, color: '#334155', display:'flex', alignItems:'center', gap:8, marginBottom:20 }}>
                     💳 <span style={{fontWeight:'bold'}}>Planes</span>
-                    {/* AVISO SI NO TIENE PLAN */}
                     {shopData.plan === 'none' && <span style={{fontSize:10, background:'#f1c40f', color:'white', padding:'2px 8px', borderRadius:10}}>Requerido</span>}
                 </h3>
 
@@ -309,7 +310,7 @@ export default function ConfiguracionPage() {
                         Los primeros 14 días son <b>GRATIS</b>.
                     </p>
 
-                    {/* --- 1. BOTÓN DE ACTIVAR PRUEBA (Solo si es nuevo) --- */}
+                    {/* 1. BOTÓN DE ACTIVAR PRUEBA (Solo si es nuevo) */}
                     {shopData.plan === 'none' && (
                         <button 
                             onClick={handlePlanActivation}
@@ -326,7 +327,7 @@ export default function ConfiguracionPage() {
                         </button>
                     )}
 
-                    {/* --- 2. BOTÓN DE MERCADO PAGO (EL QUE PEDISTE) --- */}
+                    {/* 2. BOTÓN DE MERCADO PAGO (EL QUE PEDISTE) */}
                     <button 
                         onClick={handleSubscribe} 
                         disabled={loadingPago}
