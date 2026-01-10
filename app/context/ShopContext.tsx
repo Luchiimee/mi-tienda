@@ -103,7 +103,7 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
             plantillaVisual: shop.plantilla_visual || 'Minimal', personalTheme: shop.personal_theme || 'glass', plan: shop.plan || 'none', 
             nombreDueno: nombreFinal, apellidoDueno: apellidoFinal, telefonoDueno: telefonoFinal,
             templateLocked: shop.template_locked || null, lastTemplateChange: shop.last_template_change, 
-            changeCount: shop.change_count || 0, // ✅ Cargamos el contador
+            changeCount: shop.change_count || 0,
             productos: items?.map(p => ({ id: p.id, titulo: p.titulo, descripcion: p.descripcion, precio: p.precio, galeria: p.galeria || [], url: p.url_destino, shop_id: p.shop_id, tipo: p.tipo, imagen: p.imagen_url })) || [],
             subscription_status: shop.subscription_status || 'trial', trial_start_date: shop.trial_start_date || shop.created_at, mp_subscription_id: shop.mp_subscription_id || '', plan_price: shop.plan_price || 0
           });
@@ -172,45 +172,68 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
                 return { success: false, message: `🔒 Bloqueado: Ya usaste tu cambio permitido. Podrás cambiar de nuevo en ${remaining} días.` };
             }
         }
-        // Si count es 0, permitimos el cambio (el Sidebar mostrará la advertencia primero)
+        // Si count es 0, permitimos el cambio
     }
     
-    // --- ACTUALIZACIÓN VISUAL INMEDIATA (OPTIMISTA) ---
+    // 1. CARGAMOS LOS DATOS DE LA NUEVA PLANTILLA (Para que se vea rápido)
+    const newSlug = shopData.slugs[newTemplate] || '';
+    const newLogo = shopData.logos[newTemplate] || '';
+    const newName = shopData.nombres[newTemplate] || shopData.nombreNegocio;
+    const newDesc = shopData.descripciones[newTemplate] || shopData.descripcion;
+    const newWhatsapp = shopData.whatsapps[newTemplate] || shopData.whatsapp;
+
+    // --- ⚡ ACTUALIZACIÓN VISUAL INMEDIATA (OPTIMISTA) ---
     setShopData(prev => ({ 
-        ...prev, template: newTemplate, productos: [], 
-        logo: prev.logos[newTemplate] || '', slug: prev.slugs[newTemplate] || '',
-        nombreNegocio: prev.nombres[newTemplate] || '', descripcion: prev.descripciones[newTemplate] || '', whatsapp: prev.whatsapps[newTemplate] || ''
+        ...prev, 
+        template: newTemplate, 
+        productos: [], // Limpiamos productos mientras cargan los nuevos
+        slug: newSlug,
+        logo: newLogo,
+        nombreNegocio: newName, 
+        descripcion: newDesc, 
+        whatsapp: newWhatsapp
     }));
     
     if (shopData.id) {
        const now = new Date().toISOString();
        const updates: any = { template: newTemplate };
        
+       let nextCount = shopData.changeCount || 0;
+
        if (shopData.plan === 'simple') {
+           nextCount = nextCount + 1;
            updates.template_locked = newTemplate;
            updates.last_template_change = now;
-           updates.change_count = (shopData.changeCount || 0) + 1; // Incrementamos contador
+           updates.change_count = nextCount;
            
-           // Actualizamos estado local también
+           // Actualizamos el estado con el nuevo contador
            setShopData(prev => ({ 
                ...prev, 
                templateLocked: newTemplate, 
                lastTemplateChange: now,
-               changeCount: (prev.changeCount || 0) + 1 
+               changeCount: nextCount
            }));
        }
 
        await supabase.from('shops').update(updates).eq('id', shopData.id);
 
+       // Recargar productos de la nueva plantilla
        const tipoNecesario = getTipo(newTemplate);
        let { data: items } = await supabase.from('products').select('*').eq('shop_id', shopData.id).eq('tipo', tipoNecesario).order('created_at', { ascending: true });
+       
        if (!items || items.length === 0) {
           const defaults = getDefaults(newTemplate);
           const toInsert = defaults.map(p => ({ ...p, shop_id: shopData.id, imagen_url: (p as any).imagen_url }));
           const { data: inserted } = await supabase.from('products').insert(toInsert).select();
           if (inserted) items = inserted;
        }
-       setShopData(prev => ({ ...prev, template: newTemplate, productos: items?.map(p => ({ id: p.id, titulo: p.titulo, descripcion: p.descripcion, precio: p.precio, galeria: p.galeria || [], url: p.url_destino, shop_id: p.shop_id, tipo: p.tipo, imagen: p.imagen_url })) || [] }));
+
+       // FINALMENTE PONEMOS LOS PRODUCTOS NUEVOS EN EL ESTADO
+       setShopData(prev => ({ 
+           ...prev, 
+           template: newTemplate, // Reconfirmamos template
+           productos: items?.map(p => ({ id: p.id, titulo: p.titulo, descripcion: p.descripcion, precio: p.precio, galeria: p.galeria || [], url: p.url_destino, shop_id: p.shop_id, tipo: p.tipo, imagen: p.imagen_url })) || [] 
+       }));
     }
 
     return { success: true };
