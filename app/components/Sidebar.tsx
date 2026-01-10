@@ -8,7 +8,7 @@ import { useRouter } from 'next/navigation';
 import { DOMAIN_URL } from '@/lib/constants';
 import UpgradeModal from './UpgradeModal'; 
 
-interface SidebarProps { activeTab?: 'personalizar' | 'productos' | 'configuracion'; }
+interface SidebarProps { activeTab?: 'personalizar' | 'productos' | 'configuracion' | 'superadmin'; }
 
 export default function Sidebar({ activeTab = 'personalizar' }: SidebarProps) {
   const { shopData, updateConfig, updateProduct, addProduct, deleteProduct, changeTemplate, canEdit, manualSave } = useShop();
@@ -135,12 +135,10 @@ export default function Sidebar({ activeTab = 'personalizar' }: SidebarProps) {
   };
 
   const selectTemplate = (val: string) => { 
-      // PERMITIMOS NAVEGAR, SOLO BLOQUEAMOS SI EL PLAN LO IMPIDE
       if (shopData.plan === 'simple' && shopData.templateLocked && shopData.templateLocked !== val) {
           alert("🔒 Tu Plan Básico está bloqueado en la plantilla: " + shopData.templateLocked.toUpperCase());
           return;
       } 
-      
       changeTemplate(val); 
       setIndexEditando(0); 
   };
@@ -163,10 +161,8 @@ export default function Sidebar({ activeTab = 'personalizar' }: SidebarProps) {
 
   return (
     <>
-      {/* EL MODAL FLOTANTE */}
       <UpgradeModal isOpen={showUpgradeModal} onClose={() => setShowUpgradeModal(false)} />
 
-      {/* ⚠️ AQUÍ ESTÁ EL ARREGLO VISUAL: height: 100vh y sticky */}
       <aside 
         className="sidebar" 
         style={{ 
@@ -182,6 +178,8 @@ export default function Sidebar({ activeTab = 'personalizar' }: SidebarProps) {
           <h1 style={{fontSize:18, margin:0}}>Hola {shopData.nombreAdmin}</h1>
           <span style={{fontSize:12, color:'#95a5a6'}}>Panel Admin</span>
         </div>
+        
+        {/* --- NAV MODIFICADA CON BOTÓN SUPER ADMIN --- */}
         <nav style={{ marginBottom: '20px' }}>
           <ul>
             <li className={activeTab === 'personalizar' ? 'activo' : ''}><Link href="/admin" style={{ display: 'flex', alignItems: 'center', width: '100%', height: '100%', textDecoration: 'none', color: 'inherit' }}>🖌️ Personalizar</Link></li>
@@ -203,6 +201,18 @@ export default function Sidebar({ activeTab = 'personalizar' }: SidebarProps) {
                 </Link>
             </li>
             <li className={activeTab === 'configuracion' ? 'activo' : ''}><Link href="/configuracion" style={{ display: 'flex', alignItems: 'center', width: '100%', height: '100%', textDecoration: 'none', color: 'inherit' }}>⚙️ Configuración</Link></li>
+            
+            {/* ⚠️ BOTÓN SECRETO SUPER ADMIN (Solo para luchiimee@gmail.com) */}
+            {shopData.email === 'luchiimee@gmail.com' && (
+                <li style={{ marginTop: 20, borderTop: '1px solid #34495e', paddingTop: 20 }} className={activeTab === 'superadmin' ? 'activo' : ''}>
+                    <Link 
+                        href="/superadmin" 
+                        style={{ display: 'flex', alignItems: 'center', width: '100%', height: '100%', textDecoration: 'none', color: '#f1c40f', fontWeight: 'bold' }}
+                    >
+                        🕵️‍♂️ Super Admin
+                    </Link>
+                </li>
+            )}
           </ul>
         </nav>
 
