@@ -383,18 +383,36 @@ function ConfiguracionContent() {
             </div>
             
             {/* 3. MI PERFIL */}
-            <div style={{ background: 'white', padding: 30, borderRadius: 16, boxShadow: '0 4px 20px rgba(0,0,0,0.03)', border:'1px solid #f1f5f9' }}>
-                <h3 style={{ marginTop: 0, fontSize: 16, color: '#334155', display:'flex', alignItems:'center', gap:8, marginBottom:25 }}>
-                    👤 <span style={{fontWeight:'bold'}}>Mi Perfil</span>
-                </h3>
-                <div style={{display:'flex', gap:10, marginBottom:15}}>
-                    <div style={{flex:1}}><label style={{display:'block', fontSize:11, fontWeight:'bold', color:'#64748b', marginBottom:5}}>Nombre</label><input type="text" value={shopData.nombreDueno} onChange={(e) => updateProfile({nombreDueno: e.target.value})} style={{width:'100%', padding:10, border:'1px solid #cbd5e1', borderRadius:6, fontSize:13}} /></div>
-                    <div style={{flex:1}}><label style={{display:'block', fontSize:11, fontWeight:'bold', color:'#64748b', marginBottom:5}}>Apellido</label><input type="text" value={shopData.apellidoDueno} onChange={(e) => updateProfile({apellidoDueno: e.target.value})} style={{width:'100%', padding:10, border:'1px solid #cbd5e1', borderRadius:6, fontSize:13}} /></div>
-                </div>
-                <button onClick={handleSaveName} style={{marginBottom:20, background:'#3b82f6', color:'white', border:'none', borderRadius:4, padding:'8px 15px', fontSize:12, cursor:'pointer'}}>Guardar Nombre</button>
-                <div style={{marginBottom:20}}><label style={{display:'block', fontSize:11, fontWeight:'bold', color:'#64748b', marginBottom:5}}>Email</label><input type="text" value={shopData.email} disabled style={{width:'100%', padding:10, border:'none', borderRadius:6, background:'#f1f5f9', color:'#94a3b8', fontSize:13}} /></div>
-                <hr style={{border:'none', borderTop:'1px solid #f1f5f9', margin:'20px 0'}} />
-                <label style={{display:'block', fontSize:11, fontWeight:'bold', color:'#64748b', marginBottom:5}}>Contraseña</label>
+           <div style={{ background: 'white', padding: 30, borderRadius: 16, boxShadow: '0 4px 20px rgba(0,0,0,0.03)', border:'1px solid #f1f5f9' }}>
+    <h3 style={{ marginTop: 0, fontSize: 16, color: '#334155', display:'flex', alignItems:'center', gap:8, marginBottom:25 }}>
+        👤 <span style={{fontWeight:'bold'}}>Mi Perfil</span>
+    </h3>
+    
+    <div style={{display:'flex', gap:10, marginBottom:15}}>
+        <div style={{flex:1}}>
+            <label style={{display:'block', fontSize:11, fontWeight:'bold', color:'#64748b', marginBottom:5}}>Nombre</label>
+            <input type="text" value={shopData.nombreDueno || ''} onChange={(e) => updateProfile({nombreDueno: e.target.value})} style={{width:'100%', padding:10, border:'1px solid #cbd5e1', borderRadius:6, fontSize:13}} />
+        </div>
+        <div style={{flex:1}}>
+            <label style={{display:'block', fontSize:11, fontWeight:'bold', color:'#64748b', marginBottom:5}}>Apellido</label>
+            <input type="text" value={shopData.apellidoDueno || ''} onChange={(e) => updateProfile({apellidoDueno: e.target.value})} style={{width:'100%', padding:10, border:'1px solid #cbd5e1', borderRadius:6, fontSize:13}} />
+        </div>
+    </div>
+
+    {/* NUEVO CAMPO TELÉFONO */}
+    <div style={{marginBottom:15}}>
+        <label style={{display:'block', fontSize:11, fontWeight:'bold', color:'#64748b', marginBottom:5}}>Teléfono / WhatsApp</label>
+        <input type="text" placeholder="Ej: +54 9 11..." value={shopData.telefonoDueno || ''} onChange={(e) => updateProfile({telefonoDueno: e.target.value})} style={{width:'100%', padding:10, border:'1px solid #cbd5e1', borderRadius:6, fontSize:13}} />
+    </div>
+
+    <button onClick={handleSaveName} style={{marginBottom:20, background:'#3b82f6', color:'white', border:'none', borderRadius:4, padding:'8px 15px', fontSize:12, cursor:'pointer'}}>Guardar Datos</button>
+
+    <div style={{marginBottom:20}}>
+        <label style={{display:'block', fontSize:11, fontWeight:'bold', color:'#64748b', marginBottom:5}}>Email (No editable)</label>
+        <input type="text" value={shopData.email} disabled style={{width:'100%', padding:10, border:'none', borderRadius:6, background:'#f1f5f9', color:'#94a3b8', fontSize:13}} />
+    </div>
+
+    <hr style={{border:'none', borderTop:'1px solid #f1f5f9', margin:'20px 0'}} />
                 <div style={{ display: 'flex', gap: 10 }}>
                      <input type="password" placeholder="Nueva..." value={newPass} onChange={e => setNewPass(e.target.value)} style={{ flex:1, padding: '10px', border: '1px solid #cbd5e1', borderRadius: 6, fontSize:13 }} />
                      <button onClick={handlePassChange} disabled={loadingPass} style={{ background: '#3b82f6', color: 'white', border: 'none', borderRadius: 6, padding:'0 15px', cursor: 'pointer' }}>OK</button>
