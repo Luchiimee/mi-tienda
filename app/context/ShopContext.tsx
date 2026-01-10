@@ -34,10 +34,9 @@ export type Product = {
     shop_id?: string; 
     tipo?: string; 
     imagen?: string; 
-    imagen_url?: string; // Compatibilidad
+    imagen_url?: string; 
 };
 
-// Definimos la interfaz completa para evitar errores en Vercel
 type ShopData = {
   id?: string; 
   email: string; 
@@ -57,7 +56,7 @@ type ShopData = {
   // Datos del dueño
   nombreDueno: string; 
   apellidoDueno: string; 
-  telefonoDueno: string; // ✅ Nuevo campo
+  telefonoDueno: string;
 
   templateLocked: string | null; 
   lastTemplateChange: string | null; 
@@ -75,8 +74,8 @@ type ShopData = {
 const emptyState: ShopData = {
   email: '', nombreAdmin: '', template: 'tienda', slug: '', slugs: {}, logos: {}, 
   nombreNegocio: '', descripcion: '', whatsapp: '', logo: '', 
-  plantillaVisual: 'Clásica', personalTheme: 'glass', plan: 'none', 
-  nombreDueno: '', apellidoDueno: '', telefonoDueno: '', // ✅ Inicializamos vacío
+  plantillaVisual: 'Minimal', personalTheme: 'glass', plan: 'none', 
+  nombreDueno: '', apellidoDueno: '', telefonoDueno: '', 
   templateLocked: null, lastTemplateChange: null, changeCount: 0, productos: [],
   nombres: {}, descripciones: {}, whatsapps: {},
   subscription_status: 'trial', trial_start_date: '', mp_subscription_id: '', plan_price: 0
@@ -113,50 +112,43 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
         
         const userEmail = user.email.toLowerCase();
 
-        // 1. Buscamos la tienda
+        // 1. Buscamos la tienda usando 'owner_id' (CORREGIDO)
         let { data: shop } = await supabase.from('shops').select('*').eq('owner_id', user.id).maybeSingle();
 
-        // 2. Si no existe, la creamos (fallback compatibilidad)
+        // 2. Si no existe, la creamos usando 'owner_id' (CORREGIDO)
         if (!shop) {
-             // Intentamos buscar por user_id (nuestra estructura nueva) si owner_id falló
-             let { data: shopV2 } = await supabase.from('shops').select('*').eq('user_id', user.id).maybeSingle();
-             shop = shopV2;
-
-             if (!shop) {
-                const { data: newShop } = await supabase.from('shops').insert([{ 
-                    user_id: user.id, // Usamos user_id preferentemente
-                    owner_id: user.id, // Mantenemos owner_id por compatibilidad
-                    email: userEmail,
-                    slug_tienda: null, 
-                    nombre_negocio: 'Mi Negocio', 
-                    template: 'tienda', 
-                    plan: 'none',
-                    subscription_status: 'trial',
-                    trial_start_date: new Date().toISOString()
-                }]).select().single();
-                shop = newShop;
-             }
+            const { data: newShop } = await supabase.from('shops').insert([{ 
+                owner_id: user.id, // USAMOS LA COLUMNA CORRECTA
+                email: userEmail,
+                slug_tienda: null, 
+                nombre_negocio: 'Mi Negocio', 
+                template: 'tienda', 
+                plan: 'none',
+                subscription_status: 'trial',
+                trial_start_date: new Date().toISOString()
+            }]).select().single();
+            shop = newShop;
         }
 
         if (shop) {
-          // --- MODO SUPER ADMIN ---
+          // 👑 MODO SUPER ADMIN
           if (userEmail === ADMIN_EMAIL) {
                shop.plan = 'full';
                shop.subscription_status = 'active';
+               // Forzamos update
+               if(shop.plan !== 'full') await supabase.from('shops').update({ plan: 'full', subscription_status: 'active' }).eq('id', shop.id);
           }
 
-          // --- SINCRONIZACIÓN DE EMAIL Y DATOS ---
-          // Si el email en la tabla pública no coincide, lo actualizamos. Esto es vital para el Super Admin.
-          if (shop.email !== userEmail) {
+          // 📧 FORZAR GUARDADO DE EMAIL
+          if (!shop.email || shop.email !== userEmail) {
                await supabase.from('shops').update({ email: userEmail }).eq('id', shop.id);
           }
 
-          // Recuperar datos del dueño
+          // RECUPERAR DATOS
           let nombreFinal = shop.nombre_dueno || '';
           let apellidoFinal = shop.apellido_dueno || '';
-          let telefonoFinal = shop.telefono_dueno || ''; // ✅ Recuperamos teléfono
+          let telefonoFinal = shop.telefono_dueno || ''; 
 
-          // Si no hay nombre, intentamos sacarlo de Google/Auth
           if (!nombreFinal) {
               const meta = user.user_metadata || {};
               nombreFinal = meta.first_name || meta.given_name || meta.full_name?.split(' ')[0] || '';
@@ -178,7 +170,7 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
              if (inserted) items = inserted;
           }
 
-          // Mapeo de configuraciones
+          // Mapeo
           const currentSlugs: any = { tienda: shop.slug_tienda || '', catalogo: shop.slug_catalogo || '', menu: shop.slug_menu || '', personal: shop.slug_personal || '' };
           const currentLogos: any = { tienda: shop.logo_tienda || '', catalogo: shop.logo_catalogo || '', menu: shop.logo_menu || '', personal: shop.logo_personal || '' };
           const currentNombres: any = {
@@ -210,7 +202,6 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
             plantillaVisual: shop.plantilla_visual || 'Minimal', personalTheme: shop.personal_theme || 'glass', 
             plan: shop.plan || 'none', 
             
-            // ✅ Datos de Perfil
             nombreDueno: nombreFinal,      
             apellidoDueno: apellidoFinal,  
             telefonoDueno: telefonoFinal,
@@ -234,16 +225,12 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
 
   // --- 🔒 SEGURIDAD ---
   const canEdit = () => {
-      if (shopData.email === ADMIN_EMAIL) return true; // Super Admin siempre puede
+      if (shopData.email === ADMIN_EMAIL) return true; 
       if (shopData.subscription_status === 'active') return true;
-      
-      // Trial Logic
       if (shopData.subscription_status === 'trial' && shopData.trial_start_date) {
          const days = Math.ceil(Math.abs(new Date().getTime() - new Date(shopData.trial_start_date).getTime()) / (1000 * 60 * 60 * 24));
          return days <= 14;
       }
-
-      // Si no tiene plan o expiró
       return false;
   };
 
@@ -277,11 +264,10 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
   const changeTemplate = async (newTemplate: string) => {
     if (shopData.plan === 'simple' && shopData.templateLocked && shopData.templateLocked !== newTemplate) return;
     
-    // Actualización optimista
     setShopData(prev => ({ 
         ...prev, 
         template: newTemplate, 
-        productos: [], // Limpiamos visualmente mientras carga
+        productos: [], 
         logo: prev.logos[newTemplate] || '', 
         slug: prev.slugs[newTemplate] || '',
         nombreNegocio: prev.nombres[newTemplate] || '', 
@@ -428,7 +414,6 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
       return false;
   };
 
-  // ✅ ACTUALIZAR PERFIL (GUARDA TELÉFONO Y EMAIL)
   const updateProfile = async (data: any) => {
       setShopData(prev => {
           let nuevoNombre = prev.nombreAdmin;
@@ -444,14 +429,14 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
           const dbData: any = {};
           if(data.nombreDueno !== undefined) dbData.nombre_dueno = data.nombreDueno;
           if(data.apellidoDueno !== undefined) dbData.apellido_dueno = data.apellidoDueno;
-          if(data.telefonoDueno !== undefined) dbData.telefono_dueno = data.telefonoDueno; // ✅ Guarda teléfono
+          if(data.telefonoDueno !== undefined) dbData.telefono_dueno = data.telefonoDueno; // ✅ Se envía el teléfono
           
-          // Aseguramos que el email se actualice también
-          if(shopData.email) dbData.email = shopData.email;
+          if(shopData.email) dbData.email = shopData.email; 
 
           if(data.plan !== undefined) { dbData.plan = data.plan; if(data.plan === 'full') dbData.template_locked = null; }
           
-          await supabase.from('shops').update(dbData).eq('id', shopData.id);
+          const { error } = await supabase.from('shops').update(dbData).eq('id', shopData.id);
+          if (error) console.error("Error guardando perfil:", error);
       }
   };
   
