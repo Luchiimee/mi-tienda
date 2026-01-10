@@ -3,7 +3,7 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 
-// --- DATOS POR DEFECTO ---
+// --- DATOS POR DEFECTO (Productos, Menús, etc.) ---
 const DEFAULT_TIENDA = [
   { titulo: 'Remera Básica', descripcion: 'Algodón 100% premium.', precio: '12000', galeria: [], imagen_url: 'https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?auto=format&fit=crop&w=500&q=60', tipo: 'producto' },
   { titulo: 'Jean Slim Fit', descripcion: 'Denim elastizado azul.', precio: '45000', galeria: [], imagen_url: 'https://images.unsplash.com/photo-1542272617-08f086303293?auto=format&fit=crop&w=500&q=60', tipo: 'producto' }
@@ -98,7 +98,7 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
     // 1. Buscamos la tienda
     let { data: shop } = await supabase.from('shops').select('*').eq('owner_id', user.id).maybeSingle();
 
-    // 2. Si no existe, la creamos (con slug NULL para obligar config)
+    // 2. Si no existe, la creamos
     if (!shop) {
        const { data: newShop } = await supabase.from('shops').insert([{ 
            owner_id: user.id, 
@@ -111,22 +111,37 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
     }
 
     if (shop) {
-      // --- MAGIA AQUÍ: SINCRONIZAR NOMBRE DE GOOGLE/REGISTRO ---
+      // --- LÓGICA ROBUSTA PARA OBTENER NOMBRE Y APELLIDO ---
       let nombreFinal = shop.nombre_dueno || '';
       let apellidoFinal = shop.apellido_dueno || '';
       
-      // Si en la base de datos están vacíos, miramos los metadatos de Google/Registro
-      if (!nombreFinal) {
-          const meta = user.user_metadata;
-          // Google usa 'given_name', nuestro registro manual usa 'first_name'
-          const nombreMeta = meta.first_name || meta.given_name || ''; 
-          const apellidoMeta = meta.last_name || meta.family_name || '';
+      // Si faltan datos en la tabla shops, buscamos en los metadatos del usuario (Google o Registro)
+      if (!nombreFinal || !apellidoFinal) {
+          const meta = user.user_metadata || {};
+          
+          // Intento 1: Buscar campos explícitos (común en registro manual o algunos providers)
+          let nombreMeta = meta.first_name || meta.given_name || '';
+          let apellidoMeta = meta.last_name || meta.family_name || '';
 
+          // Intento 2: Si falló lo anterior, buscar en 'full_name' o 'name' (común en Google)
+          if (!nombreMeta && (meta.full_name || meta.name)) {
+              const nombreCompleto = meta.full_name || meta.name;
+              const partes = nombreCompleto.split(' '); // Dividimos por espacios
+              
+              if (partes.length > 0) {
+                  nombreMeta = partes[0]; // El primero es el nombre
+                  if (partes.length > 1) {
+                      apellidoMeta = partes.slice(1).join(' '); // El resto es el apellido
+                  }
+              }
+          }
+
+          // Si logramos rescatar algo, actualizamos las variables locales Y la base de datos
           if (nombreMeta) {
               nombreFinal = nombreMeta;
               apellidoFinal = apellidoMeta;
               
-              // GUARDAMOS ESTO EN LA BASE DE DATOS PARA QUE YA QUEDE FIJO
+              // Guardado silencioso en segundo plano para que quede fijo
               await supabase.from('shops').update({
                   nombre_dueno: nombreFinal,
                   apellido_dueno: apellidoFinal
@@ -168,17 +183,20 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
           personal: shop.whatsapp_personal || ''
       };
 
-      // --- SALUDO DEL PANEL ---
-      let nombreVisual = user.email?.split('@')[0] || 'Admin';
+      // --- CONSTRUCCIÓN DEL SALUDO (Ahora sí con Nombre Real) ---
+      let nombreVisual = ''; // Empezamos vacío
       if (nombreFinal) {
           nombreVisual = nombreFinal;
           if (apellidoFinal) nombreVisual += ` ${apellidoFinal.charAt(0).toUpperCase()}.`;
+      } else {
+          // Fallback solo si realmente falló todo lo anterior
+          nombreVisual = user.email?.split('@')[0] || 'Admin';
       }
 
       setShopData({
         id: shop.id, 
         email: user.email || '', 
-        nombreAdmin: nombreVisual, // Ahora usará el nombre real
+        nombreAdmin: nombreVisual, // ¡Aquí va el nombre corregido!
         template: shop.template, 
         slug: currentSlugs[shop.template] || '', slugs: currentSlugs,
         logos: currentLogos, logo: currentLogos[shop.template] || '',
@@ -189,8 +207,8 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
         whatsapps: currentWhatsapps,
         plantillaVisual: shop.plantilla_visual || 'Minimal', personalTheme: shop.personal_theme || 'glass', 
         plan: shop.plan || 'none', 
-        nombreDueno: nombreFinal,      // Se rellena automático
-        apellidoDueno: apellidoFinal,  // Se rellena automático
+        nombreDueno: nombreFinal,      // Rellena la card de perfil
+        apellidoDueno: apellidoFinal,  // Rellena la card de perfil
         templateLocked: shop.template_locked || null, lastTemplateChange: shop.last_template_change, changeCount: shop.change_count || 0,
         productos: items?.map(p => ({ id: p.id, titulo: p.titulo, descripcion: p.descripcion, precio: p.precio, galeria: p.galeria || [], url: p.url_destino, shop_id: p.shop_id, tipo: p.tipo, imagen: p.imagen_url })) || [],
         
@@ -392,7 +410,7 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
           titulo: prod.titulo, 
           descripcion: prod.descripcion, 
           precio: prod.precio, 
-          galeria: prod.galeria || [],
+          galeria: prod.galeria || [], 
           url_destino: prod.url, 
           tipo: tipoActual, 
           imagen_url: prod.imagen 
