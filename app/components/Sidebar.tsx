@@ -38,14 +38,12 @@ export default function Sidebar({ activeTab = 'personalizar' }: SidebarProps) {
   const togglePlantillas = () => setPlantillasAbierto(!plantillasAbierto);
   const toggleAcordeon = (seccion: string) => setSeccionAbierta(seccionAbierta === seccion ? null : seccion);
   
-  // Función centralizada de seguridad
+  // --- FUNCIÓN CENTRALIZADA DE SEGURIDAD ---
   const checkEdit = () => { 
       if (!canEdit()) { 
-          // Si no tiene plan, o tiene plan simple y quiere editar algo bloqueado
-          if(window.confirm("⚠️ Para editar, necesitas activar un plan.\n\n¿Quieres ir a elegir uno ahora?")) {
-              // Redirigir al inicio del admin donde sale el PlanSelector si plan es 'none'
-              // O a configuración si es otro caso
-              router.push('/admin'); 
+          // Si no tiene plan, mostramos la alerta y redirigimos a CONFIGURACIÓN
+          if(window.confirm("🔒 Estás en modo Vista Previa.\n\nPara editar tu tienda, necesitas activar un plan de prueba.\n\n¿Quieres ir a Configuración para elegir uno ahora?")) {
+              router.push('/configuracion'); 
           }
           return false; 
       } 
@@ -137,8 +135,14 @@ export default function Sidebar({ activeTab = 'personalizar' }: SidebarProps) {
   };
 
   const selectTemplate = (val: string) => { 
-      // Si el plan es simple y la plantilla está bloqueada en otra diferente, NO HACER NADA
-      if (shopData.plan === 'simple' && shopData.templateLocked && shopData.templateLocked !== val) return; 
+      // 1. Verificar si tiene permiso general de edición
+      if (!checkEdit()) return;
+
+      // 2. Verificar si el plan Básico le impide cambiar de plantilla
+      if (shopData.plan === 'simple' && shopData.templateLocked && shopData.templateLocked !== val) {
+          alert("🔒 Tu Plan Básico está bloqueado en la plantilla: " + shopData.templateLocked.toUpperCase());
+          return;
+      } 
       
       changeTemplate(val); 
       setIndexEditando(0); 
@@ -199,9 +203,9 @@ export default function Sidebar({ activeTab = 'personalizar' }: SidebarProps) {
                <div className="grid-plantillas">
                 {templates.map((t) => {
                   const isSelected = shopData.template === t.id;
-                  // ¿Está bloqueado este botón?
-                  // Si el plan es simple Y hay una plantilla bloqueada Y NO es esta plantilla
-                  const isDisabled = shopData.plan === 'simple' && shopData.templateLocked && shopData.templateLocked !== t.id;
+                  
+                  // Lógica visual de bloqueo (Plan Básico)
+                  const isLockedByPlan = shopData.plan === 'simple' && shopData.templateLocked && shopData.templateLocked !== t.id;
                   
                   return (
                     <div 
@@ -209,17 +213,16 @@ export default function Sidebar({ activeTab = 'personalizar' }: SidebarProps) {
                         className={`item-plantilla ${isSelected ? 'seleccionada' : ''}`} 
                         onClick={() => selectTemplate(t.id)} 
                         style={{
-                            opacity: isDisabled ? 0.3 : 1, 
-                            filter: isDisabled ? 'grayscale(100%)' : 'none', 
-                            cursor: isDisabled ? 'not-allowed' : 'pointer', 
-                            // Borde dorado si es la seleccionada del plan simple
+                            opacity: isLockedByPlan ? 0.4 : 1, 
+                            filter: isLockedByPlan ? 'grayscale(100%)' : 'none', 
+                            cursor: isLockedByPlan ? 'not-allowed' : 'pointer', 
                             border: isSelected && (shopData.plan==='simple' && shopData.templateLocked) ? '2px solid #f1c40f' : ''
                         }}
-                        title={isDisabled ? "Bloqueado por tu Plan Básico" : ""}
+                        title={isLockedByPlan ? "🔒 Plantilla no disponible en tu Plan Básico actual" : t.label}
                     >
                         <div className="icono-grande">{t.icon}</div>
                         <span style={{textTransform:'capitalize', fontWeight:'bold'}}>
-                            {t.label} {isDisabled && '🔒'}
+                            {t.label} {isLockedByPlan && '🔒'}
                         </span>
                     </div>
                   );
