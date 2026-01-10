@@ -16,10 +16,15 @@ function ConfiguracionContent() {
   const [loadingPass, setLoadingPass] = useState(false);
   const [loadingPago, setLoadingPago] = useState(false);
   const [loadingPlan, setLoadingPlan] = useState(false);
-  const [loadingCancel, setLoadingCancel] = useState(false); // Estado para cancelar
+  const [loadingCancel, setLoadingCancel] = useState(false);
 
   const [editingSlugs, setEditingSlugs] = useState<{[key:string]: string}>({});
   
+  // --- ESTADOS PARA CUPÓN ---
+  const [couponCode, setCouponCode] = useState('');
+  const [appliedCoupon, setAppliedCoupon] = useState<{code: string, percent: number} | null>(null);
+  const [validatingCoupon, setValidatingCoupon] = useState(false);
+
   // Estado para la selección VISUAL de planes
   const [selectedPlan, setSelectedPlan] = useState<'simple' | 'full'>('full');
   const [selectedTemplate, setSelectedTemplate] = useState<string>('');
@@ -27,19 +32,25 @@ function ConfiguracionContent() {
   const PRECIO_SIMPLE = 15200;
   const PRECIO_FULL = 20100;
 
-  // Lógica de fechas
-  const trialStart = new Date(shopData.trial_start_date || shopData.created_at || new Date());
-  const today = new Date();
-  const diffTime = Math.abs(today.getTime() - trialStart.getTime());
-  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
-  const daysLeft = Math.max(0, 14 - diffDays);
-  const isExpired = daysLeft === 0;
+  const getPrice = () => {
+      const base = selectedPlan === 'full' ? PRECIO_FULL : PRECIO_SIMPLE;
+      if (appliedCoupon) {
+          return base - (base * appliedCoupon.percent / 100);
+      }
+      return base;
+  };
+
   const isTrial = shopData.subscription_status === 'trial';
   const isActive = shopData.subscription_status === 'active';
+  const isExpired = shopData.subscription_status === 'past_due' || (!isActive && !isTrial);
+  
+  // Lógica de días restantes
+  const trialStart = new Date(shopData.trial_start_date || shopData.created_at || new Date());
+  const diffDays = Math.ceil(Math.abs(new Date().getTime() - trialStart.getTime()) / (1000 * 60 * 60 * 24)); 
+  const daysLeft = Math.max(0, 14 - diffDays);
 
   useEffect(() => { setEditingSlugs(shopData.slugs); }, [shopData.slugs]);
   
-  // Sincronizar selección inicial con lo que tiene el usuario
   useEffect(() => {
       if (shopData.plan === 'simple') {
           setSelectedPlan('simple');
@@ -57,15 +68,13 @@ function ConfiguracionContent() {
     checkUser();
   }, [router]);
 
-  // --- DETECCIÓN DE PAGO EXITOSO ---
   useEffect(() => {
     const status = searchParams.get('status');
     const collectionStatus = searchParams.get('collection_status');
-    const preapprovalId = searchParams.get('preapproval_id'); // ID de suscripción de MP
+    const preapprovalId = searchParams.get('preapproval_id'); 
 
     if ((status === 'success' || collectionStatus === 'approved') && shopData.id) {
         const activarCuenta = async () => {
-            // Guardamos el estado active Y el ID de la suscripción para poder cancelarla luego
             const updates: any = { subscription_status: 'active' };
             if (preapprovalId) updates.mp_subscription_id = preapprovalId;
 
@@ -81,34 +90,50 @@ function ConfiguracionContent() {
     }
   }, [searchParams, shopData.id, shopData.subscription_status, router]);
 
-  // --- LÓGICA ACTIVAR PRUEBA GRATIS (O CAMBIAR PLAN EN TRIAL) ---
+  const handleApplyCoupon = async () => {
+      if(!couponCode) return;
+      setValidatingCoupon(true);
+      
+      // Consultamos a Supabase si el cupón existe y está activo
+      const { data, error } = await supabase
+          .from('coupons')
+          .select('*')
+          .eq('code', couponCode.toUpperCase())
+          .eq('active', true)
+          .single();
+      
+      setValidatingCoupon(false);
+
+      if (data) {
+          setAppliedCoupon({ code: data.code, percent: data.discount_percent });
+          alert(`✅ ¡Cupón Aplicado! ${data.discount_percent}% de descuento.`);
+      } else {
+          setAppliedCoupon(null);
+          alert("❌ Cupón inválido o expirado.");
+      }
+  };
+
   const handlePlanActivation = async () => {
     setLoadingPlan(true);
-    
-    // Validaciones
     if (selectedPlan === 'simple' && !selectedTemplate) {
         alert("⚠️ Para el Plan Básico debes elegir una plantilla.");
         setLoadingPlan(false);
         return;
     }
-
-    // Ejecutamos la lógica del contexto
     const success = await activateTrial(selectedPlan, selectedPlan === 'simple' ? selectedTemplate : undefined);
     setLoadingPlan(false);
     
     if (success) {
-        alert(isTrial ? "✅ Plan actualizado correctamente." : "🎉 ¡Prueba activada! Disfruta tus 14 días.");
+        alert(isTrial ? "✅ Plan actualizado." : "🎉 ¡Prueba activada!");
         router.refresh(); 
     } else {
-        alert("Hubo un error al actualizar el plan.");
+        alert("Error al activar plan.");
     }
   };
 
-  // --- LÓGICA PAGAR (MERCADO PAGO) ---
   const handleSubscribe = async () => {
       setLoadingPago(true);
       try {
-        // 1. Guardamos la preferencia de plan antes de ir a MP
         const updates: any = { plan: selectedPlan };
         if (selectedPlan === 'simple' && selectedTemplate) {
             updates.template_locked = selectedTemplate;
@@ -116,8 +141,7 @@ function ConfiguracionContent() {
         }
         await updateProfile(updates);
 
-        // 2. Llamamos a la API
-        const priceToPay = selectedPlan === 'full' ? PRECIO_FULL : PRECIO_SIMPLE;
+        // Enviamos el precio calculado y el código del cupón (si hay)
         const response = await fetch('/api/crear-suscripcion', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -125,7 +149,7 @@ function ConfiguracionContent() {
                 email: shopData.email,
                 plan: selectedPlan,
                 shopId: shopData.id,
-                price: priceToPay
+                couponCode: appliedCoupon ? appliedCoupon.code : null // Enviamos el código para validarlo en backend
             }),
         });
 
@@ -142,31 +166,26 @@ function ConfiguracionContent() {
       }
   };
 
-  // --- LÓGICA CANCELAR SUSCRIPCIÓN ---
   const handleCancelSubscription = async () => {
-      if(!shopData.mp_subscription_id) return alert("No tienes una suscripción activa vinculada.");
-      
-      if(!confirm("⚠️ ¿Estás seguro de cancelar tu suscripción?\n\n- Se detendrá el cobro automático.\n- Al finalizar el período pagado, tu cuenta volverá a modo restringido.")) return;
+      if(!shopData.mp_subscription_id) return alert("No tienes suscripción activa vinculada.");
+      if(!confirm("⚠️ ¿Cancelar suscripción? Se detendrá el cobro automático.")) return;
 
       setLoadingCancel(true);
       try {
-          // 1. Cancelar en Mercado Pago
           const res = await fetch('/api/cancelar-suscripcion', {
               method: 'POST',
               headers: {'Content-Type': 'application/json'},
               body: JSON.stringify({ subscriptionId: shopData.mp_subscription_id })
           });
-          
           if(!res.ok) throw new Error("Error al conectar con Mercado Pago");
 
-          // 2. Actualizar base de datos local
           await supabase.from('shops').update({ 
               subscription_status: 'cancelled',
-              plan: 'none', // Opcional: bajar a none o dejarlo hasta que expire
+              plan: 'none',
               mp_subscription_id: null
           }).eq('id', shopData.id);
 
-          alert("✅ Suscripción cancelada. No se realizarán más cobros.");
+          alert("✅ Suscripción cancelada.");
           window.location.reload();
 
       } catch (error:any) {
@@ -181,19 +200,14 @@ function ConfiguracionContent() {
     const err = await changePassword(newPass); setLoadingPass(false);
     if (err) alert("Error: " + err.message); else { alert("¡Contraseña actualizada!"); setNewPass(''); }
   };
-
   const handleSaveSpecificSlug = async (tmpl: string) => {
       const newVal = editingSlugs[tmpl];
-      if(!newVal) return alert("El link no puede estar vacío");
-      await updateTemplateSlug(tmpl, newVal);
-      alert(`✅ Link actualizado.`);
+      if(!newVal) return alert("Link vacío"); await updateTemplateSlug(tmpl, newVal); alert(`✅ Actualizado.`);
   };
-
-  const handleDeactivate = async (tmpl: string) => { if(confirm(`⚠️ ¿ELIMINAR ${tmpl.toUpperCase()}?`)) await resetTemplate(tmpl); };
-  const handleCopy = (slug: string) => { navigator.clipboard.writeText(`${DOMAIN_URL}/${slug}`); alert("¡Link copiado!"); };
+  const handleDeactivate = async (tmpl: string) => { if(confirm(`¿ELIMINAR ${tmpl}?`)) await resetTemplate(tmpl); };
+  const handleCopy = (slug: string) => { navigator.clipboard.writeText(`${DOMAIN_URL}/${slug}`); alert("¡Copiado!"); };
   const handleSaveName = async () => { await updateProfile({ nombreDueno: shopData.nombreDueno, apellidoDueno: shopData.apellidoDueno }); alert("✅ Datos guardados."); };
 
-  // Filtro de links activos
   const templatesList = [
       { id: 'tienda', label: 'Tienda Online', icon: '🛍️', color: '#3b82f6' },
       { id: 'catalogo', label: 'Catálogo Digital', icon: '📒', color: '#8b5cf6' },
@@ -214,7 +228,7 @@ function ConfiguracionContent() {
             <h1 style={{ margin: 0, color: '#1e293b', fontSize: 28, fontWeight: '800' }}>Configuración</h1>
         </div>
 
-        {/* --- STATUS BAR --- */}
+        {/* STATUS BAR */}
         <div style={{ display:'flex', justifyContent:'center', marginBottom: 30 }}>
             <div style={{ 
                 background: isActive ? '#dcfce7' : (isExpired ? '#fef2f2' : 'white'), 
@@ -238,9 +252,7 @@ function ConfiguracionContent() {
             
             {/* 1. ACCESOS RÁPIDOS */}
             <div style={{ background: 'white', padding: 30, borderRadius: 16, boxShadow: '0 4px 20px rgba(0,0,0,0.03)', border:'1px solid #f1f5f9', gridColumn: '1 / -1' }}>
-                <h3 style={{ marginTop: 0, fontSize: 16, color: '#334155', display:'flex', alignItems:'center', gap:8, marginBottom:20 }}>
-                    🚀 <span style={{fontWeight:'bold'}}>Mis Links Activos</span>
-                </h3>
+                <h3 style={{ marginTop: 0, fontSize: 16, color: '#334155', display:'flex', alignItems:'center', gap:8, marginBottom:20 }}>🚀 <span style={{fontWeight:'bold'}}>Mis Links Activos</span></h3>
                 {activeTemplates.length > 0 ? (
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 15 }}>
                         {activeTemplates.map((t) => (
@@ -271,7 +283,7 @@ function ConfiguracionContent() {
                 )}
             </div>
 
-            {/* 2. CARD DE PLANES (LÓGICA ACTUALIZADA) */}
+            {/* 2. CARD PLANES (CON CUPÓN) */}
             <div style={{ background: 'white', padding: 30, borderRadius: 16, boxShadow: '0 4px 20px rgba(0,0,0,0.03)', border: shopData.plan === 'none' ? '2px solid #f1c40f' : '1px solid #f1f5f9', display:'flex', flexDirection:'column' }}>
                 <h3 style={{ marginTop: 0, fontSize: 16, color: '#334155', display:'flex', alignItems:'center', gap:8, marginBottom:20 }}>
                     💳 <span style={{fontWeight:'bold'}}>Planes</span>
@@ -280,37 +292,18 @@ function ConfiguracionContent() {
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 15, marginBottom: 20 }}>
                     {/* BÁSICO */}
-                    <div 
-                        onClick={() => setSelectedPlan('simple')}
-                        style={{ 
-                            border: selectedPlan === 'simple' ? '2px solid #3b82f6' : '1px solid #e2e8f0', 
-                            borderRadius: 12, padding: 15, position: 'relative', 
-                            background: selectedPlan === 'simple' ? '#eff6ff' : 'white', 
-                            cursor:'pointer', transition:'all 0.2s'
-                        }} 
-                    >
+                    <div onClick={() => setSelectedPlan('simple')} style={{ border: selectedPlan === 'simple' ? '2px solid #3b82f6' : '1px solid #e2e8f0', borderRadius: 12, padding: 15, position: 'relative', background: selectedPlan === 'simple' ? '#eff6ff' : 'white', cursor:'pointer', transition:'all 0.2s' }}>
                         <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
                             <div style={{ fontSize: 13, fontWeight: 'bold', color: '#334155' }}>Plan Básico</div>
                             {selectedPlan === 'simple' && <div style={{fontSize:14, color:'#3b82f6'}}>●</div>}
                         </div>
                         <div style={{ fontSize: 18, fontWeight: '800', color: '#3b82f6', margin: '5px 0' }}>$15.200<span style={{fontSize:11, fontWeight:'normal', color:'#64748b'}}>/mes</span></div>
                         <div style={{ fontSize: 10, background: '#dbeafe', color: '#1e40af', padding: '2px 6px', borderRadius: 4, display: 'inline-block', marginBottom: 10 }}>14 Días Gratis</div>
-                        <ul style={{ padding: 0, listStyle: 'none', fontSize: 11, color: '#64748b' }}>
-                            <li>✅ 1 Plantilla Activa</li>
-                            <li>🔒 Otras bloqueadas</li>
-                        </ul>
-                        
-                        {/* SELECTOR DE PLANTILLA (SOLO APARECE EN PLAN SIMPLE) */}
+                        <ul style={{ padding: 0, listStyle: 'none', fontSize: 11, color: '#64748b' }}><li>✅ 1 Plantilla Activa</li><li>🔒 Otras bloqueadas</li></ul>
                         {selectedPlan === 'simple' && (
                               <div style={{marginTop:10, borderTop:'1px dashed #bfdbfe', paddingTop:10}}>
                                   <label style={{fontSize:10, fontWeight:'bold', display:'block', color:'#1e40af'}}>Elige tu plantilla:</label>
-                                  <select 
-                                    value={selectedTemplate} 
-                                    onChange={(e) => setSelectedTemplate(e.target.value)}
-                                    // Si ya tiene plan activo bloqueado, deshabilitamos
-                                    disabled={shopData.plan === 'simple' && isActive}
-                                    style={{width:'100%', padding:5, marginTop:5, fontSize:11, borderRadius:4, border:'1px solid #bfdbfe', opacity: (shopData.plan === 'simple' && isActive) ? 0.6 : 1}}
-                                  >
+                                  <select value={selectedTemplate} onChange={(e) => setSelectedTemplate(e.target.value)} disabled={shopData.plan === 'simple' && isActive} style={{width:'100%', padding:5, marginTop:5, fontSize:11, borderRadius:4, border:'1px solid #bfdbfe', opacity: (shopData.plan === 'simple' && isActive) ? 0.6 : 1}}>
                                       <option value="" disabled>-- Seleccionar --</option>
                                       <option value="tienda">Tienda</option>
                                       <option value="catalogo">Catálogo</option>
@@ -320,128 +313,96 @@ function ConfiguracionContent() {
                               </div>
                           )}
                     </div>
-
                     {/* FULL */}
-                    <div 
-                        onClick={() => { setSelectedPlan('full'); setSelectedTemplate(''); }}
-                        style={{ 
-                            border: selectedPlan === 'full' ? '2px solid #eab308' : '1px solid #e2e8f0', 
-                            borderRadius: 12, padding: 15, position: 'relative', 
-                            background: selectedPlan === 'full' ? '#fffbeb' : 'white', 
-                            cursor:'pointer', transition:'all 0.2s'
-                        }} 
-                    >
+                    <div onClick={() => { setSelectedPlan('full'); setSelectedTemplate(''); }} style={{ border: selectedPlan === 'full' ? '2px solid #eab308' : '1px solid #e2e8f0', borderRadius: 12, padding: 15, position: 'relative', background: selectedPlan === 'full' ? '#fffbeb' : 'white', cursor:'pointer', transition:'all 0.2s' }}>
                         <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
                             <div style={{ fontSize: 13, fontWeight: 'bold', color: '#334155' }}>Plan Full 👑</div>
                             {selectedPlan === 'full' && <div style={{fontSize:14, color:'#eab308'}}>●</div>}
                         </div>
                         <div style={{ fontSize: 18, fontWeight: '800', color: '#d97706', margin: '5px 0' }}>$20.100<span style={{fontSize:11, fontWeight:'normal', color:'#64748b'}}>/mes</span></div>
                         <div style={{ fontSize: 10, background: '#fef3c7', color: '#92400e', padding: '2px 6px', borderRadius: 4, display: 'inline-block', marginBottom: 10 }}>14 Días Gratis</div>
-                        <ul style={{ padding: 0, listStyle: 'none', fontSize: 11, color: '#64748b' }}>
-                            <li>✅ Todo Ilimitado</li>
-                            <li>🚀 Múltiples Links</li>
-                        </ul>
+                        <ul style={{ padding: 0, listStyle: 'none', fontSize: 11, color: '#64748b' }}><li>✅ Todo Ilimitado</li><li>🚀 Múltiples Links</li></ul>
                     </div>
                 </div>
 
                 <div style={{marginTop:'auto', paddingTop:15, borderTop:'1px dashed #e2e8f0'}}>
+                    
+                    {/* --- ZONA DE CUPÓN --- */}
+                    <div style={{marginBottom:15, padding:10, background:'#f8fafc', borderRadius:8, border:'1px solid #e2e8f0'}}>
+                        {!appliedCoupon ? (
+                            <div style={{display:'flex', gap:5}}>
+                                <input 
+                                    type="text" 
+                                    placeholder="¿Tenés un cupón?" 
+                                    value={couponCode}
+                                    onChange={(e) => setCouponCode(e.target.value)}
+                                    style={{flex:1, padding:8, border:'1px solid #cbd5e1', borderRadius:6, fontSize:13}}
+                                />
+                                <button 
+                                    onClick={handleApplyCoupon} 
+                                    disabled={validatingCoupon || !couponCode}
+                                    style={{background:'#334155', color:'white', border:'none', borderRadius:6, padding:'0 15px', cursor:'pointer', fontSize:12}}
+                                >
+                                    {validatingCoupon ? '...' : 'Aplicar'}
+                                </button>
+                            </div>
+                        ) : (
+                            <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+                                <div>
+                                    <span style={{color:'#16a34a', fontWeight:'bold', fontSize:13}}>✅ Cupón {appliedCoupon.code}</span>
+                                    <div style={{fontSize:11, color:'#64748b'}}>{appliedCoupon.percent}% OFF aplicado</div>
+                                </div>
+                                <button onClick={() => { setAppliedCoupon(null); setCouponCode(''); }} style={{background:'transparent', border:'none', color:'#ef4444', cursor:'pointer', fontSize:11}}>Quitar</button>
+                            </div>
+                        )}
+                    </div>
+
                     <p style={{margin:'0 0 10px 0', fontSize:11, color:'#64748b', textAlign:'center'}}>
                         {isActive ? 'Tu próximo cobro será automático.' : 'Los primeros 14 días son GRATIS.'}
                     </p>
 
-                    {/* BOTÓN 1: ACTIVAR PRUEBA (O CAMBIAR PLAN SI AÚN ESTÁ EN PRUEBA) */}
+                    {/* BOTÓN 1: PRUEBA GRATIS */}
                     {(!isActive && !isExpired) && (
-                        <button 
-                            onClick={handlePlanActivation}
-                            disabled={loadingPlan || (selectedPlan === 'simple' && !selectedTemplate)}
-                            style={{
-                                width: '100%', padding: 12, borderRadius: 8, border: 'none', marginBottom: 10,
-                                background: (loadingPlan || (selectedPlan === 'simple' && !selectedTemplate)) ? '#ccc' : '#2ecc71',
-                                color: 'white', fontWeight: 'bold', fontSize: 14,
-                                cursor: 'pointer', boxShadow: '0 4px 10px rgba(46, 204, 113, 0.3)'
-                            }}
-                        >
+                        <button onClick={handlePlanActivation} disabled={loadingPlan || (selectedPlan === 'simple' && !selectedTemplate)} style={{width: '100%', padding: 12, borderRadius: 8, border: 'none', marginBottom: 10, background: (loadingPlan || (selectedPlan === 'simple' && !selectedTemplate)) ? '#ccc' : '#2ecc71', color: 'white', fontWeight: 'bold', fontSize: 14, cursor: 'pointer', boxShadow: '0 4px 10px rgba(46, 204, 113, 0.3)'}}>
                             {loadingPlan ? 'Procesando...' : (shopData.plan !== 'none' ? '🔄 Actualizar Plan (Sin cargo)' : '✅ Activar Prueba Gratis (14 Días)')}
                         </button>
                     )}
 
-                    {/* BOTÓN 2: PAGAR (SIEMPRE DISPONIBLE O SI EXPIRÓ) */}
-                    <button 
-                        onClick={handleSubscribe} 
-                        disabled={loadingPago}
-                        style={{
-                            width: '100%', padding: 12, borderRadius: 8, border: 'none',
-                            background: '#5a99fa', color: 'white', fontWeight: 'bold', fontSize: 14,
-                            cursor: loadingPago ? 'not-allowed' : 'pointer',
-                            opacity: loadingPago ? 0.7 : 1, display:'flex', alignItems:'center', justifyContent:'center', gap:8,
-                            boxShadow: '0 4px 10px rgba(90, 153, 250, 0.3)'
-                        }}
-                    >
-                        {loadingPago ? 'Cargando...' : (isActive ? '💳 Actualizar Método de Pago' : '💳 Suscripción (Mercado Pago)')}
+                    {/* BOTÓN 2: MERCADO PAGO (CON LÓGICA DE PRECIO) */}
+                    <button onClick={handleSubscribe} disabled={loadingPago} style={{width: '100%', padding: 12, borderRadius: 8, border: 'none', background: '#5a99fa', color: 'white', fontWeight: 'bold', fontSize: 14, cursor: loadingPago ? 'not-allowed' : 'pointer', opacity: loadingPago ? 0.7 : 1, display:'flex', alignItems:'center', justifyContent:'center', gap:8, boxShadow: '0 4px 10px rgba(90, 153, 250, 0.3)'}}>
+                         {loadingPago ? 'Cargando...' : (
+                             <span>
+                                 💳 Suscribirse por {appliedCoupon ? 
+                                    <span style={{color:'#fef08a'}}> ${getPrice().toLocaleString()}</span> : 
+                                    ` $${(selectedPlan==='full'?PRECIO_FULL:PRECIO_SIMPLE).toLocaleString()}`
+                                 }
+                             </span>
+                         )}
                     </button>
                 </div>
             </div>
             
             {/* 3. MI PERFIL */}
-           <div style={{ background: 'white', padding: 30, borderRadius: 16, boxShadow: '0 4px 20px rgba(0,0,0,0.03)', border:'1px solid #f1f5f9' }}>
-    <h3 style={{ marginTop: 0, fontSize: 16, color: '#334155', display:'flex', alignItems:'center', gap:8, marginBottom:25 }}>
-        👤 <span style={{fontWeight:'bold'}}>Mi Perfil</span>
-    </h3>
-    
-    <div style={{display:'flex', gap:10, marginBottom:15}}>
-        <div style={{flex:1}}>
-            <label style={{display:'block', fontSize:11, fontWeight:'bold', color:'#64748b', marginBottom:5}}>Nombre</label>
-            <input type="text" value={shopData.nombreDueno || ''} onChange={(e) => updateProfile({nombreDueno: e.target.value})} style={{width:'100%', padding:10, border:'1px solid #cbd5e1', borderRadius:6, fontSize:13}} />
-        </div>
-        <div style={{flex:1}}>
-            <label style={{display:'block', fontSize:11, fontWeight:'bold', color:'#64748b', marginBottom:5}}>Apellido</label>
-            <input type="text" value={shopData.apellidoDueno || ''} onChange={(e) => updateProfile({apellidoDueno: e.target.value})} style={{width:'100%', padding:10, border:'1px solid #cbd5e1', borderRadius:6, fontSize:13}} />
-        </div>
-    </div>
-
-    {/* NUEVO CAMPO TELÉFONO */}
-    <div style={{marginBottom:15}}>
-        <label style={{display:'block', fontSize:11, fontWeight:'bold', color:'#64748b', marginBottom:5}}>Teléfono / WhatsApp</label>
-        <input type="text" placeholder="Ej: +54 9 11..." value={shopData.telefonoDueno || ''} onChange={(e) => updateProfile({telefonoDueno: e.target.value})} style={{width:'100%', padding:10, border:'1px solid #cbd5e1', borderRadius:6, fontSize:13}} />
-    </div>
-
-    <button onClick={handleSaveName} style={{marginBottom:20, background:'#3b82f6', color:'white', border:'none', borderRadius:4, padding:'8px 15px', fontSize:12, cursor:'pointer'}}>Guardar Datos</button>
-
-    <div style={{marginBottom:20}}>
-        <label style={{display:'block', fontSize:11, fontWeight:'bold', color:'#64748b', marginBottom:5}}>Email (No editable)</label>
-        <input type="text" value={shopData.email} disabled style={{width:'100%', padding:10, border:'none', borderRadius:6, background:'#f1f5f9', color:'#94a3b8', fontSize:13}} />
-    </div>
-
-    <hr style={{border:'none', borderTop:'1px solid #f1f5f9', margin:'20px 0'}} />
-                <div style={{ display: 'flex', gap: 10 }}>
-                     <input type="password" placeholder="Nueva..." value={newPass} onChange={e => setNewPass(e.target.value)} style={{ flex:1, padding: '10px', border: '1px solid #cbd5e1', borderRadius: 6, fontSize:13 }} />
-                     <button onClick={handlePassChange} disabled={loadingPass} style={{ background: '#3b82f6', color: 'white', border: 'none', borderRadius: 6, padding:'0 15px', cursor: 'pointer' }}>OK</button>
+            <div style={{ background: 'white', padding: 30, borderRadius: 16, boxShadow: '0 4px 20px rgba(0,0,0,0.03)', border:'1px solid #f1f5f9' }}>
+                <h3 style={{ marginTop: 0, fontSize: 16, color: '#334155', display:'flex', alignItems:'center', gap:8, marginBottom:25 }}>👤 <span style={{fontWeight:'bold'}}>Mi Perfil</span></h3>
+                <div style={{display:'flex', gap:10, marginBottom:15}}>
+                    <div style={{flex:1}}><label style={{display:'block', fontSize:11, fontWeight:'bold', color:'#64748b', marginBottom:5}}>Nombre</label><input type="text" value={shopData.nombreDueno || ''} onChange={(e) => updateProfile({nombreDueno: e.target.value})} style={{width:'100%', padding:10, border:'1px solid #cbd5e1', borderRadius:6, fontSize:13}} /></div>
+                    <div style={{flex:1}}><label style={{display:'block', fontSize:11, fontWeight:'bold', color:'#64748b', marginBottom:5}}>Apellido</label><input type="text" value={shopData.apellidoDueno || ''} onChange={(e) => updateProfile({apellidoDueno: e.target.value})} style={{width:'100%', padding:10, border:'1px solid #cbd5e1', borderRadius:6, fontSize:13}} /></div>
                 </div>
+                <div style={{marginBottom:15}}><label style={{display:'block', fontSize:11, fontWeight:'bold', color:'#64748b', marginBottom:5}}>Teléfono / WhatsApp</label><input type="text" value={shopData.telefonoDueno || ''} onChange={(e) => updateProfile({telefonoDueno: e.target.value})} style={{width:'100%', padding:10, border:'1px solid #cbd5e1', borderRadius:6, fontSize:13}} /></div>
+                <button onClick={handleSaveName} style={{marginBottom:20, background:'#3b82f6', color:'white', border:'none', borderRadius:4, padding:'8px 15px', fontSize:12, cursor:'pointer'}}>Guardar Datos</button>
+                <div style={{marginBottom:20}}><label style={{display:'block', fontSize:11, fontWeight:'bold', color:'#64748b', marginBottom:5}}>Email (No editable)</label><input type="text" value={shopData.email} disabled style={{width:'100%', padding:10, border:'none', borderRadius:6, background:'#f1f5f9', color:'#94a3b8', fontSize:13}} /></div>
+                <hr style={{border:'none', borderTop:'1px solid #f1f5f9', margin:'20px 0'}} />
+                <div style={{ display: 'flex', gap: 10 }}><input type="password" placeholder="Nueva..." value={newPass} onChange={e => setNewPass(e.target.value)} style={{ flex:1, padding: '10px', border: '1px solid #cbd5e1', borderRadius: 6, fontSize:13 }} /><button onClick={handlePassChange} disabled={loadingPass} style={{ background: '#3b82f6', color: 'white', border: 'none', borderRadius: 6, padding:'0 15px', cursor: 'pointer' }}>OK</button></div>
             </div>
 
-            {/* 4. NUEVA CARD: GESTIONAR SUSCRIPCIÓN (BAJA) */}
+            {/* 4. CANCELAR */}
             {isActive && (
                 <div style={{ background: 'white', padding: 30, borderRadius: 16, boxShadow: '0 4px 20px rgba(0,0,0,0.03)', border:'1px solid #f1f5f9' }}>
-                    <h3 style={{ marginTop: 0, fontSize: 16, color: '#334155', display:'flex', alignItems:'center', gap:8, marginBottom:20 }}>
-                        ⛔ <span style={{fontWeight:'bold'}}>Zona de Peligro</span>
-                    </h3>
-                    <p style={{fontSize:13, color:'#64748b', marginBottom:15}}>
-                        Si cancelas, perderás el acceso a las funciones de edición al finalizar tu período actual.
-                    </p>
-                    <button 
-                        onClick={handleCancelSubscription} 
-                        disabled={loadingCancel}
-                        style={{
-                            width: '100%', padding: 12, borderRadius: 8, border: '1px solid #fca5a5',
-                            background: '#fef2f2', color: '#dc2626', fontWeight: 'bold', fontSize: 13,
-                            cursor: loadingCancel ? 'not-allowed' : 'pointer'
-                        }}
-                    >
-                        {loadingCancel ? 'Cancelando...' : 'Cancelar Suscripción'}
-                    </button>
+                    <h3 style={{ marginTop: 0, fontSize: 16, color: '#334155', display:'flex', alignItems:'center', gap:8, marginBottom:20 }}>⛔ <span style={{fontWeight:'bold'}}>Zona de Peligro</span></h3>
+                    <button onClick={handleCancelSubscription} disabled={loadingCancel} style={{width: '100%', padding: 12, borderRadius: 8, border: '1px solid #fca5a5', background: '#fef2f2', color: '#dc2626', fontWeight: 'bold', fontSize: 13, cursor: loadingCancel ? 'not-allowed' : 'pointer'}}>{loadingCancel ? 'Cancelando...' : 'Cancelar Suscripción'}</button>
                 </div>
             )}
-
         </div>
       </main>
   );
