@@ -5,21 +5,26 @@ import { createClient } from '@supabase/supabase-js';
 // Inicializar Mercado Pago
 const client = new MercadoPagoConfig({ accessToken: process.env.MP_ACCESS_TOKEN || '' });
 
-// Inicializar Supabase Admin (para leer cupones de forma segura)
-const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-    process.env.SUPABASE_SERVICE_ROLE_KEY || '' // ⚠️ Asegúrate de tener esta key en .env.local
-);
-
 export async function POST(req: Request) {
   try {
+    // 1. Validar que las claves existan ANTES de usarlas
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (!supabaseUrl || !supabaseServiceKey) {
+        throw new Error("Faltan las credenciales de Supabase (URL o SERVICE_KEY) en Vercel.");
+    }
+
+    // 2. Inicializar Supabase Admin AQUÍ ADENTRO (Para evitar error de Build)
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
     const { email, plan, shopId, couponCode } = await req.json();
 
-    // 1. PRECIO BASE
+    // 3. PRECIO BASE
     let finalPrice = plan === 'full' ? 20100 : 15200;
     let description = `Suscripción Snappy - Plan ${plan === 'full' ? 'Full' : 'Básico'}`;
 
-    // 2. VERIFICAR CUPÓN (Si enviaron uno)
+    // 4. VERIFICAR CUPÓN
     if (couponCode) {
         const { data: coupon } = await supabase
             .from('coupons')
@@ -35,10 +40,9 @@ export async function POST(req: Request) {
         }
     }
 
-    // Aseguramos que el precio sea entero (Mercado Pago a veces molesta con decimales)
     finalPrice = Math.round(finalPrice);
 
-    // 3. Crear PreApproval en Mercado Pago
+    // 5. Crear PreApproval en Mercado Pago
     const preapproval = new PreApproval(client);
     
     const result = await preapproval.create({
@@ -50,9 +54,9 @@ export async function POST(req: Request) {
           transaction_amount: finalPrice,
           currency_id: 'ARS',
         },
-        back_url: `${process.env.NEXT_PUBLIC_DOMAIN_URL}/configuracion`, // Redirige aquí al terminar
+        back_url: `${process.env.NEXT_PUBLIC_DOMAIN_URL}/configuracion`, 
         payer_email: email,
-        external_reference: shopId, // Vinculamos el pago a la tienda
+        external_reference: shopId, 
         status: 'pending',
       }
     });
