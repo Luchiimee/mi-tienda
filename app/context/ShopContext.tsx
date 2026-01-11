@@ -51,48 +51,26 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
   const getTipo = (tmpl: string) => (tmpl === 'menu' ? 'gastronomia' : tmpl === 'personal' ? 'enlace' : tmpl === 'catalogo' ? 'catalogo' : 'producto');
   const getDefaults = (tmpl: string) => (tmpl === 'menu' ? DEFAULT_MENU : tmpl === 'personal' ? DEFAULT_LINKS : tmpl === 'catalogo' ? DEFAULT_CATALOGO : DEFAULT_TIENDA);
 
-  // --- CARGA DE DATOS CENTRALIZADA ---
-  const loadShopData = async (user: any) => {
+  const loadShopData = async () => {
     try {
+        const { data: { user } } = await supabase.auth.getSession().then(res => res.data.session ? { data: { user: res.data.session.user } } : { data: { user: null } });
         if (!user || !user.email) { setLoading(false); return; }
         const userEmail = user.email.toLowerCase();
-        
         let { data: shop } = await supabase.from('shops').select('*').eq('owner_id', user.id).maybeSingle();
 
-        // Si no existe por owner_id, buscamos por user_id (retrocompatibilidad)
         if (!shop) {
              let { data: shopV2 } = await supabase.from('shops').select('*').eq('user_id', user.id).maybeSingle();
              shop = shopV2;
-             
-             // Si sigue sin existir, CREAMOS LA TIENDA
              if (!shop) {
-                const { data: newShop } = await supabase.from('shops').insert([{ 
-                    user_id: user.id, 
-                    owner_id: user.id, 
-                    email: userEmail, 
-                    slug_tienda: null, 
-                    nombre_negocio: 'Mi Negocio', 
-                    template: 'tienda', 
-                    plan: 'none', 
-                    subscription_status: 'trial', 
-                    trial_start_date: new Date().toISOString() 
-                }]).select().single();
+                const { data: newShop } = await supabase.from('shops').insert([{ user_id: user.id, owner_id: user.id, email: userEmail, slug_tienda: null, nombre_negocio: 'Mi Negocio', template: 'tienda', plan: 'none', subscription_status: 'trial', trial_start_date: new Date().toISOString() }]).select().single();
                 shop = newShop;
              }
         }
 
         if (shop) {
-          // Lógica Admin
-          if (userEmail === ADMIN_EMAIL) { 
-              shop.plan = 'full'; 
-              shop.subscription_status = 'active'; 
-              if(shop.plan !== 'full') await supabase.from('shops').update({ plan: 'full', subscription_status: 'active' }).eq('id', shop.id); 
-          }
-          
-          // Actualizar email si cambió
+          if (userEmail === ADMIN_EMAIL) { shop.plan = 'full'; shop.subscription_status = 'active'; if(shop.plan !== 'full') await supabase.from('shops').update({ plan: 'full', subscription_status: 'active' }).eq('id', shop.id); }
           if (!shop.email || shop.email !== userEmail) await supabase.from('shops').update({ email: userEmail }).eq('id', shop.id);
 
-          // Rellenar nombres si faltan
           let nombreFinal = shop.nombre_dueno || ''; let apellidoFinal = shop.apellido_dueno || ''; let telefonoFinal = shop.telefono_dueno || '';
           if (!nombreFinal) {
               const meta = user.user_metadata || {};
@@ -101,10 +79,8 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
               if(nombreFinal) await supabase.from('shops').update({ nombre_dueno: nombreFinal, apellido_dueno: apellidoFinal }).eq('id', shop.id);
           }
 
-          // Cargar productos o Insertar Defaults
           const tipoNecesario = getTipo(shop.template);
           let { data: items } = await supabase.from('products').select('*').eq('shop_id', shop.id).eq('tipo', tipoNecesario).order('created_at', { ascending: true });
-          
           if (!items || items.length === 0) {
              const defaults = getDefaults(shop.template);
              const toInsert = defaults.map(p => ({ ...p, shop_id: shop.id, imagen_url: (p as any).imagen_url }));
@@ -112,7 +88,6 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
              if (inserted) items = inserted;
           }
 
-          // Mapeo de datos
           const currentSlugs: any = { tienda: shop.slug_tienda || '', catalogo: shop.slug_catalogo || '', menu: shop.slug_menu || '', personal: shop.slug_personal || '' };
           const currentLogos: any = { tienda: shop.logo_tienda || '', catalogo: shop.logo_catalogo || '', menu: shop.logo_menu || '', personal: shop.logo_personal || '' };
           const currentNombres: any = { tienda: shop.nombre_tienda || shop.nombre_negocio, catalogo: shop.nombre_catalogo || shop.nombre_negocio, menu: shop.nombre_menu || shop.nombre_negocio, personal: shop.nombre_personal || shop.nombre_negocio };
@@ -136,32 +111,7 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
     } catch (error) { console.error("Error cargando tienda:", error); } finally { setLoading(false); }
   };
 
-  // 🔥 EFECTO PRINCIPAL: ESCUCHA LA AUTENTICACIÓN
-  useEffect(() => { 
-      // 1. Check inicial
-      const initLoad = async () => {
-          const { data: { session } } = await supabase.auth.getSession();
-          if (session?.user) {
-              await loadShopData(session.user);
-          } else {
-              setLoading(false);
-          }
-      };
-      initLoad();
-
-      // 2. Escuchar cambios (Login/Logout)
-      const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-          if (event === 'SIGNED_IN' && session?.user) {
-              setLoading(true);
-              await loadShopData(session.user);
-          } else if (event === 'SIGNED_OUT') {
-              setShopData(emptyState);
-              setLoading(false);
-          }
-      });
-
-      return () => subscription.unsubscribe();
-  }, []);
+  useEffect(() => { loadShopData(); }, []);
 
   const canEdit = () => {
       if (shopData.email === ADMIN_EMAIL) return true; 
@@ -173,6 +123,7 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
       return false;
   };
 
+  // ✅ CORRECCIÓN EN ACTIVATE TRIAL (No resetear si ya es Basic)
   const activateTrial = async (selectedPlan: 'simple' | 'full', selectedTemplate?: string) => {
       if (!shopData.id) return;
       const now = new Date().toISOString();
@@ -182,7 +133,12 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
           updates.template = selectedTemplate; 
           updates.template_locked = selectedTemplate;
           updates.last_template_change = now;
-          if (shopData.plan !== 'simple') { updates.change_count = 0; }
+          
+          // 🛑 SOLUCIÓN: Solo reseteamos el contador si NO ESTABA en Básico antes
+          if (shopData.plan !== 'simple') {
+              updates.change_count = 0; 
+          }
+          // Si ya estaba en simple, NO tocamos change_count, mantenemos el historial.
       } else if (selectedPlan === 'full') { 
           updates.template_locked = null; 
       }
@@ -194,6 +150,7 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
               template: (selectedPlan === 'simple' && selectedTemplate) ? selectedTemplate : prev.template, 
               templateLocked: (selectedPlan === 'simple' && selectedTemplate) ? selectedTemplate : null,
               lastTemplateChange: (selectedPlan === 'simple') ? now : prev.lastTemplateChange,
+              // Actualizamos localmente el contador solo si cambió de plan
               changeCount: (selectedPlan === 'simple' && prev.plan !== 'simple') ? 0 : prev.changeCount
           }));
           return true;
@@ -218,15 +175,22 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
         }
     }
     
+    // UI Update inmediata
     setShopData(prev => ({ 
-        ...prev, template: newTemplate, productos: [], slug: shopData.slugs[newTemplate] || '',
-        logo: shopData.logos[newTemplate] || '', nombreNegocio: shopData.nombres[newTemplate] || '', 
-        descripcion: shopData.descripciones[newTemplate] || '', whatsapp: shopData.whatsapps[newTemplate] || ''
+        ...prev, 
+        template: newTemplate, 
+        productos: [], 
+        slug: shopData.slugs[newTemplate] || '',
+        logo: shopData.logos[newTemplate] || '',
+        nombreNegocio: shopData.nombres[newTemplate] || '', 
+        descripcion: shopData.descripciones[newTemplate] || '', 
+        whatsapp: shopData.whatsapps[newTemplate] || ''
     }));
     
     if (shopData.id) {
        const now = new Date().toISOString();
        const updates: any = { template: newTemplate };
+       
        let nextCount = shopData.changeCount || 0;
 
        if (shopData.plan === 'simple') {
@@ -234,7 +198,13 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
            updates.template_locked = newTemplate;
            updates.last_template_change = now;
            updates.change_count = nextCount;
-           setShopData(prev => ({ ...prev, templateLocked: newTemplate, lastTemplateChange: now, changeCount: nextCount }));
+           
+           setShopData(prev => ({ 
+               ...prev, 
+               templateLocked: newTemplate, 
+               lastTemplateChange: now,
+               changeCount: nextCount
+           }));
        }
 
        await supabase.from('shops').update(updates).eq('id', shopData.id);
@@ -249,6 +219,7 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
        }
        setShopData(prev => ({ ...prev, template: newTemplate, productos: items?.map(p => ({ id: p.id, titulo: p.titulo, descripcion: p.descripcion, precio: p.precio, galeria: p.galeria || [], url: p.url_destino, shop_id: p.shop_id, tipo: p.tipo, imagen: p.imagen_url })) || [] }));
     }
+
     return { success: true };
   };
 
