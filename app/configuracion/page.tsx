@@ -30,12 +30,7 @@ function ConfiguracionContent() {
   const PRECIO_SIMPLE = 15200;
   const PRECIO_FULL = 20100;
 
-  const getPrice = () => {
-      const base = selectedPlan === 'full' ? PRECIO_FULL : PRECIO_SIMPLE;
-      if (appliedCoupon) return base - (base * appliedCoupon.percent / 100);
-      return base;
-  };
-
+  // 1. DEFINIMOS ESTADOS PRIMERO (Para evitar el error de "usada antes de declaración")
   const isTrial = shopData.subscription_status === 'trial';
   const isActive = shopData.subscription_status === 'active';
   const isExpired = shopData.subscription_status === 'past_due' || (!isActive && !isTrial);
@@ -43,6 +38,25 @@ function ConfiguracionContent() {
   const trialStart = new Date(shopData.trial_start_date || shopData.created_at || new Date());
   const diffDays = Math.ceil(Math.abs(new Date().getTime() - trialStart.getTime()) / (1000 * 60 * 60 * 24)); 
   const daysLeft = Math.max(0, 14 - diffDays);
+
+  // 2. AHORA SÍ CALCULAMOS EL BLOQUEO (Porque ya existe 'isActive')
+  let daysRemainingLock = 0;
+  if (shopData.plan === 'simple' && shopData.changeCount && shopData.changeCount >= 1 && shopData.lastTemplateChange) {
+      const lastChange = new Date(shopData.lastTemplateChange);
+      const now = new Date();
+      const diffTime = Math.abs(now.getTime() - lastChange.getTime());
+      const diffDaysLock = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
+      if (diffDaysLock < 30) daysRemainingLock = 30 - diffDaysLock;
+  }
+  
+  // Si hay días restantes y el plan está activo, bloqueamos
+  const isSelectorLocked = daysRemainingLock > 0 && shopData.plan === 'simple';
+
+  const getPrice = () => {
+      const base = selectedPlan === 'full' ? PRECIO_FULL : PRECIO_SIMPLE;
+      if (appliedCoupon) return base - (base * appliedCoupon.percent / 100);
+      return base;
+  };
 
   useEffect(() => { setEditingSlugs(shopData.slugs); }, [shopData.slugs]);
   
@@ -93,7 +107,12 @@ function ConfiguracionContent() {
   };
 
   const handlePlanActivation = async () => {
-    // ADVERTENCIA DE CAMBIO DE PLAN (Si está activo)
+    // Si intenta cambiar de plantilla estando bloqueado
+    if (isSelectorLocked && selectedPlan === 'simple' && selectedTemplate !== shopData.templateLocked) {
+        alert(`🔒 No puedes cambiar de plantilla. Faltan ${daysRemainingLock} días para desbloquear el cambio.`);
+        return;
+    }
+
     if (isActive && selectedPlan !== shopData.plan) {
         const nuevoPrecio = selectedPlan === 'full' ? PRECIO_FULL : PRECIO_SIMPLE;
         if(!confirm(`⚠️ ATENCIÓN: Estás cambiando al Plan ${selectedPlan.toUpperCase()}. \n\nSi continúas, tu próxima factura será de $${nuevoPrecio}. ¿Confirmar cambio?`)) return;
@@ -117,7 +136,6 @@ function ConfiguracionContent() {
   };
 
   const handleSubscribe = async () => {
-      // ADVERTENCIA DE CAMBIO DE PLAN AL PAGAR
       if (isActive && selectedPlan !== shopData.plan) {
           if(!confirm(`⚠️ Estás por suscribirte al Plan ${selectedPlan.toUpperCase()} ($${getPrice()}). Esto reemplazará tu plan actual. ¿Continuar?`)) return;
       }
@@ -193,7 +211,7 @@ function ConfiguracionContent() {
             <h1 style={{ margin: 0, color: '#1e293b', fontSize: 28, fontWeight: '800' }}>Configuración</h1>
         </div>
 
-        {/* --- STATUS BAR (UI ACTUALIZADA) --- */}
+        {/* --- STATUS BAR --- */}
         <div style={{ display:'flex', justifyContent:'center', marginBottom: 30 }}>
             <div style={{ 
                 background: isActive ? '#dcfce7' : (isExpired ? '#fef2f2' : 'white'), 
@@ -215,6 +233,7 @@ function ConfiguracionContent() {
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: '25px', width: '100%' }}>
             
+            {/* 1. LINKS ACTIVOS */}
             <div style={{ background: 'white', padding: 30, borderRadius: 16, boxShadow: '0 4px 20px rgba(0,0,0,0.03)', border:'1px solid #f1f5f9', gridColumn: '1 / -1' }}>
                 <h3 style={{ marginTop: 0, fontSize: 16, color: '#334155', display:'flex', alignItems:'center', gap:8, marginBottom:20 }}>🚀 <span style={{fontWeight:'bold'}}>Mis Links Activos</span></h3>
                 {activeTemplates.length > 0 ? (
@@ -247,6 +266,7 @@ function ConfiguracionContent() {
                 )}
             </div>
 
+            {/* 2. CARD PLANES */}
             <div style={{ background: 'white', padding: 30, borderRadius: 16, boxShadow: '0 4px 20px rgba(0,0,0,0.03)', border: shopData.plan === 'none' ? '2px solid #f1c40f' : '1px solid #f1f5f9', display:'flex', flexDirection:'column' }}>
                 <h3 style={{ marginTop: 0, fontSize: 16, color: '#334155', display:'flex', alignItems:'center', gap:8, marginBottom:20 }}>
                     💳 <span style={{fontWeight:'bold'}}>Planes</span>
@@ -254,6 +274,7 @@ function ConfiguracionContent() {
                 </h3>
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 15, marginBottom: 20 }}>
+                    {/* BÁSICO */}
                     <div onClick={() => setSelectedPlan('simple')} style={{ border: selectedPlan === 'simple' ? '2px solid #3b82f6' : '1px solid #e2e8f0', borderRadius: 12, padding: 15, position: 'relative', background: selectedPlan === 'simple' ? '#eff6ff' : 'white', cursor:'pointer', transition:'all 0.2s' }}>
                         <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
                             <div style={{ fontSize: 13, fontWeight: 'bold', color: '#334155' }}>Plan Básico</div>
@@ -262,19 +283,35 @@ function ConfiguracionContent() {
                         <div style={{ fontSize: 18, fontWeight: '800', color: '#3b82f6', margin: '5px 0' }}>$15.200<span style={{fontSize:11, fontWeight:'normal', color:'#64748b'}}>/mes</span></div>
                         <div style={{ fontSize: 10, background: '#dbeafe', color: '#1e40af', padding: '2px 6px', borderRadius: 4, display: 'inline-block', marginBottom: 10 }}>14 Días Gratis</div>
                         <ul style={{ padding: 0, listStyle: 'none', fontSize: 11, color: '#64748b' }}><li>✅ 1 Plantilla Activa</li><li>🔒 Otras bloqueadas</li></ul>
+                        
                         {selectedPlan === 'simple' && (
                               <div style={{marginTop:10, borderTop:'1px dashed #bfdbfe', paddingTop:10}}>
                                   <label style={{fontSize:10, fontWeight:'bold', display:'block', color:'#1e40af'}}>Elige tu plantilla:</label>
-                                  <select value={selectedTemplate} onChange={(e) => setSelectedTemplate(e.target.value)} disabled={shopData.plan === 'simple' && isActive} style={{width:'100%', padding:5, marginTop:5, fontSize:11, borderRadius:4, border:'1px solid #bfdbfe', opacity: (shopData.plan === 'simple' && isActive) ? 0.6 : 1}}>
+                                  
+                                  {/* --- SELECTOR DE PLANTILLA (Bloqueado si corresponde) --- */}
+                                  <select 
+                                      value={selectedTemplate} 
+                                      onChange={(e) => setSelectedTemplate(e.target.value)} 
+                                      disabled={isSelectorLocked || (shopData.plan === 'simple' && isActive && !shopData.changeCount)} 
+                                      style={{
+                                          width:'100%', padding:5, marginTop:5, fontSize:11, borderRadius:4, 
+                                          border:'1px solid #bfdbfe', 
+                                          opacity: isSelectorLocked ? 0.5 : 1,
+                                          background: isSelectorLocked ? '#e2e8f0' : 'white',
+                                          cursor: isSelectorLocked ? 'not-allowed' : 'pointer'
+                                      }}
+                                  >
                                       <option value="" disabled>-- Seleccionar --</option>
                                       <option value="tienda">Tienda</option>
                                       <option value="catalogo">Catálogo</option>
                                       <option value="menu">Menú</option>
                                       <option value="personal">Personal</option>
                                   </select>
+                                  {isSelectorLocked && <div style={{fontSize:10, color:'#dc2626', marginTop:3}}>🔒 Cambio bloqueado por {daysRemainingLock} días.</div>}
                               </div>
                           )}
                     </div>
+                    {/* FULL */}
                     <div onClick={() => { setSelectedPlan('full'); setSelectedTemplate(''); }} style={{ border: selectedPlan === 'full' ? '2px solid #eab308' : '1px solid #e2e8f0', borderRadius: 12, padding: 15, position: 'relative', background: selectedPlan === 'full' ? '#fffbeb' : 'white', cursor:'pointer', transition:'all 0.2s' }}>
                         <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
                             <div style={{ fontSize: 13, fontWeight: 'bold', color: '#334155' }}>Plan Full 👑</div>
@@ -287,6 +324,7 @@ function ConfiguracionContent() {
                 </div>
 
                 <div style={{marginTop:'auto', paddingTop:15, borderTop:'1px dashed #e2e8f0'}}>
+                    {/* CUPÓN */}
                     <div style={{marginBottom:15, padding:10, background:'#f8fafc', borderRadius:8, border:'1px solid #e2e8f0'}}>
                         {!appliedCoupon ? (
                             <div style={{display:'flex', gap:5}}>
@@ -305,6 +343,7 @@ function ConfiguracionContent() {
                         {isActive ? 'Tu próximo cobro será automático.' : 'Los primeros 14 días son GRATIS.'}
                     </p>
 
+                    {/* BOTONES ACCIÓN */}
                     {(!isActive && !isExpired) && (
                         <button onClick={handlePlanActivation} disabled={loadingPlan || (selectedPlan === 'simple' && !selectedTemplate)} style={{width: '100%', padding: 12, borderRadius: 8, border: 'none', marginBottom: 10, background: (loadingPlan || (selectedPlan === 'simple' && !selectedTemplate)) ? '#ccc' : '#2ecc71', color: 'white', fontWeight: 'bold', fontSize: 14, cursor: 'pointer', boxShadow: '0 4px 10px rgba(46, 204, 113, 0.3)'}}>
                             {loadingPlan ? 'Procesando...' : (shopData.plan !== 'none' ? '🔄 Actualizar Plan (Sin cargo)' : '✅ Activar Prueba Gratis (14 Días)')}
@@ -321,6 +360,7 @@ function ConfiguracionContent() {
                 </div>
             </div>
             
+            {/* 3. PERFIL */}
             <div style={{ background: 'white', padding: 30, borderRadius: 16, boxShadow: '0 4px 20px rgba(0,0,0,0.03)', border:'1px solid #f1f5f9' }}>
                 <h3 style={{ marginTop: 0, fontSize: 16, color: '#334155', display:'flex', alignItems:'center', gap:8, marginBottom:25 }}>👤 <span style={{fontWeight:'bold'}}>Mi Perfil</span></h3>
                 <div style={{display:'flex', gap:10, marginBottom:15}}>
@@ -334,6 +374,7 @@ function ConfiguracionContent() {
                 <div style={{ display: 'flex', gap: 10 }}><input type="password" placeholder="Nueva..." value={newPass} onChange={e => setNewPass(e.target.value)} style={{ flex:1, padding: '10px', border: '1px solid #cbd5e1', borderRadius: 6, fontSize:13 }} /><button onClick={handlePassChange} disabled={loadingPass} style={{ background: '#3b82f6', color: 'white', border: 'none', borderRadius: 6, padding:'0 15px', cursor: 'pointer' }}>OK</button></div>
             </div>
 
+            {/* 4. CANCELAR */}
             {isActive && (
                 <div style={{ background: 'white', padding: 30, borderRadius: 16, boxShadow: '0 4px 20px rgba(0,0,0,0.03)', border:'1px solid #f1f5f9' }}>
                     <h3 style={{ marginTop: 0, fontSize: 16, color: '#334155', display:'flex', alignItems:'center', gap:8, marginBottom:20 }}>⛔ <span style={{fontWeight:'bold'}}>Zona de Peligro</span></h3>

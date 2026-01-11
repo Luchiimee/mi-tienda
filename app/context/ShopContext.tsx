@@ -123,17 +123,22 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
       return false;
   };
 
+  // ✅ CORRECCIÓN EN ACTIVATE TRIAL (No resetear si ya es Basic)
   const activateTrial = async (selectedPlan: 'simple' | 'full', selectedTemplate?: string) => {
       if (!shopData.id) return;
       const now = new Date().toISOString();
       const updates: any = { plan: selectedPlan, subscription_status: 'trial', trial_start_date: now };
       
-      // ✅ Si elige Básico, lo seteamos como "Nuevo Inicio" (Contador 0)
       if (selectedPlan === 'simple' && selectedTemplate) { 
           updates.template = selectedTemplate; 
           updates.template_locked = selectedTemplate;
           updates.last_template_change = now;
-          updates.change_count = 0; // Reiniciamos contador al activar
+          
+          // 🛑 SOLUCIÓN: Solo reseteamos el contador si NO ESTABA en Básico antes
+          if (shopData.plan !== 'simple') {
+              updates.change_count = 0; 
+          }
+          // Si ya estaba en simple, NO tocamos change_count, mantenemos el historial.
       } else if (selectedPlan === 'full') { 
           updates.template_locked = null; 
       }
@@ -145,53 +150,41 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
               template: (selectedPlan === 'simple' && selectedTemplate) ? selectedTemplate : prev.template, 
               templateLocked: (selectedPlan === 'simple' && selectedTemplate) ? selectedTemplate : null,
               lastTemplateChange: (selectedPlan === 'simple') ? now : prev.lastTemplateChange,
-              changeCount: (selectedPlan === 'simple') ? 0 : prev.changeCount
+              // Actualizamos localmente el contador solo si cambió de plan
+              changeCount: (selectedPlan === 'simple' && prev.plan !== 'simple') ? 0 : prev.changeCount
           }));
           return true;
       }
       return false;
   };
 
-  // --- 🚀 LÓGICA DE CAMBIO 30 DÍAS (CORREGIDA) ---
   const changeTemplate = async (newTemplate: string): Promise<{success: boolean, message?: string}> => {
     if (shopData.template === newTemplate) return { success: true };
 
-    // Si es Plan Básico
     if (shopData.plan === 'simple') {
         const currentCount = shopData.changeCount || 0;
-
-        // Si ya usó su cambio permitido (count >= 1), chequeamos fechas
         if (currentCount >= 1 && shopData.lastTemplateChange) {
             const lastChange = new Date(shopData.lastTemplateChange);
             const now = new Date();
             const diffTime = Math.abs(now.getTime() - lastChange.getTime());
             const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
-            
             if (diffDays < 30) {
                 const remaining = 30 - diffDays;
                 return { success: false, message: `🔒 Bloqueado: Ya usaste tu cambio permitido. Podrás cambiar de nuevo en ${remaining} días.` };
             }
         }
-        // Si count es 0, permitimos el cambio
     }
     
-    // 1. CARGAMOS LOS DATOS DE LA NUEVA PLANTILLA (Para que se vea rápido)
-    const newSlug = shopData.slugs[newTemplate] || '';
-    const newLogo = shopData.logos[newTemplate] || '';
-    const newName = shopData.nombres[newTemplate] || shopData.nombreNegocio;
-    const newDesc = shopData.descripciones[newTemplate] || shopData.descripcion;
-    const newWhatsapp = shopData.whatsapps[newTemplate] || shopData.whatsapp;
-
-    // --- ⚡ ACTUALIZACIÓN VISUAL INMEDIATA (OPTIMISTA) ---
+    // UI Update inmediata
     setShopData(prev => ({ 
         ...prev, 
         template: newTemplate, 
-        productos: [], // Limpiamos productos mientras cargan los nuevos
-        slug: newSlug,
-        logo: newLogo,
-        nombreNegocio: newName, 
-        descripcion: newDesc, 
-        whatsapp: newWhatsapp
+        productos: [], 
+        slug: shopData.slugs[newTemplate] || '',
+        logo: shopData.logos[newTemplate] || '',
+        nombreNegocio: shopData.nombres[newTemplate] || '', 
+        descripcion: shopData.descripciones[newTemplate] || '', 
+        whatsapp: shopData.whatsapps[newTemplate] || ''
     }));
     
     if (shopData.id) {
@@ -206,7 +199,6 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
            updates.last_template_change = now;
            updates.change_count = nextCount;
            
-           // Actualizamos el estado con el nuevo contador
            setShopData(prev => ({ 
                ...prev, 
                templateLocked: newTemplate, 
@@ -217,23 +209,15 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
 
        await supabase.from('shops').update(updates).eq('id', shopData.id);
 
-       // Recargar productos de la nueva plantilla
        const tipoNecesario = getTipo(newTemplate);
        let { data: items } = await supabase.from('products').select('*').eq('shop_id', shopData.id).eq('tipo', tipoNecesario).order('created_at', { ascending: true });
-       
        if (!items || items.length === 0) {
           const defaults = getDefaults(newTemplate);
           const toInsert = defaults.map(p => ({ ...p, shop_id: shopData.id, imagen_url: (p as any).imagen_url }));
           const { data: inserted } = await supabase.from('products').insert(toInsert).select();
           if (inserted) items = inserted;
        }
-
-       // FINALMENTE PONEMOS LOS PRODUCTOS NUEVOS EN EL ESTADO
-       setShopData(prev => ({ 
-           ...prev, 
-           template: newTemplate, // Reconfirmamos template
-           productos: items?.map(p => ({ id: p.id, titulo: p.titulo, descripcion: p.descripcion, precio: p.precio, galeria: p.galeria || [], url: p.url_destino, shop_id: p.shop_id, tipo: p.tipo, imagen: p.imagen_url })) || [] 
-       }));
+       setShopData(prev => ({ ...prev, template: newTemplate, productos: items?.map(p => ({ id: p.id, titulo: p.titulo, descripcion: p.descripcion, precio: p.precio, galeria: p.galeria || [], url: p.url_destino, shop_id: p.shop_id, tipo: p.tipo, imagen: p.imagen_url })) || [] }));
     }
 
     return { success: true };
