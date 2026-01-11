@@ -452,7 +452,19 @@ hr { width: 100%; border: none; border-top: 1px solid var(--card-bg); margin: 10
   min-width: 0;       /* Evita desbordes de grilla */
   overflow-y: auto;
 }
+/* Efecto Zoom para las Plantillas */
+.zoom-container {
 
+  cursor: pointer;
+}
+
+.zoom-container img {
+  transition: transform 0.4s ease; /* Suavidad de la animación */
+}
+
+.zoom-container:hover img {
+  transform: scale(1.1); /* Cuánto crece la imagen (1.1 = 10%) */
+}
 /* --- ESTILOS RESPONSIVE (CELULAR/TABLET) --- */
 @media (max-width: 768px) {
   .contenedor-layout {

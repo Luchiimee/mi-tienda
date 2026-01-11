@@ -142,8 +142,9 @@ export default function LandingPage() {
 
                    {/* --- FOOTER DEL CELULAR (NUEVO) --- */}
                    <div style={{marginTop:30, textAlign:'center', paddingTop:20, borderTop:'1px solid #eee'}}>
-                       <p style={{fontSize:11, color:'#aaa', margin:0}}>Sitio creado con</p>
-                       <p style={{fontSize:12, fontWeight:'bold', color:'#2c3e50', margin:'2px 0 0 0'}}>MyPlatform 🚀</p>
+                       <p style={{ fontSize: 11, fontWeight: 'bold', color: '#94a3b8', margin: '15px 0 0 0', textTransform:'uppercase', letterSpacing:1 }}>
+      Hecha con Snappy 🚀
+   </p>
                    </div>
                    {/* ---------------------------------- */}
 
@@ -152,7 +153,57 @@ export default function LandingPage() {
            </div>
         </div>
       </header>
+{/* --- SECCIÓN DE PLANTILLAS --- */}
+      <section style={{ padding: '80px 20px', background: '#ffffff' }}>
+        <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
+          <div style={{ textAlign: 'center', marginBottom: '60px' }}>
+            <span style={{ background: '#f1f5f9', color: '#3498db', padding: '5px 15px', borderRadius: '20px', fontSize: '12px', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: 1 }}>Diseños Reales</span>
+            <h2 style={{ fontSize: '36px', fontWeight: '900', color: '#2c3e50', marginTop: '15px' }}>Una solución para cada negocio</h2>
+            <p style={{ color: '#7f8c8d', fontSize: '18px', maxWidth: '600px', margin: '15px auto 0' }}>Elige la estructura que mejor se adapte a lo que vendes.</p>
+          </div>
 
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '30px', alignItems: 'stretch' }}>
+            
+            {/* 1. TIENDA ONLINE */}
+            <div style={{ background: '#f8fafc', borderRadius: '24px', padding: '30px 20px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column' }}>
+               <h3 style={{ fontSize: '20px', fontWeight: '800', color: '#2c3e50', display: 'flex', alignItems: 'center', gap: 10, marginBottom: 15 }}>🛍️ Tienda</h3>
+               {/* MOCKUP CONTAINER CON HOVER */}
+               <div className="zoom-container" >
+                  <img src="/plantilla-tienda.png" alt="Tienda Mockup" style={{width:'100%', height:'100%', objectFit:'cover', aspectRatio: '9/16', display: 'block'}} />
+               </div>
+               <p style={{ fontSize: '13px', color: '#64748b', marginTop: '15px', textAlign:'center' }}>Ideal para e-commerce clásico.</p>
+            </div>
+
+            {/* 2. CATÁLOGO */}
+            <div style={{ background: '#f8fafc', borderRadius: '24px', padding: '30px 20px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column' }}>
+               <h3 style={{ fontSize: '20px', fontWeight: '800', color: '#2c3e50', display: 'flex', alignItems: 'center', gap: 10, marginBottom: 15 }}>📒 Catálogo</h3>
+               <div className="zoom-container">
+                  <img src="/plantilla-catalogo.png" alt="Catalogo Mockup" style={{width:'100%', height:'100%', objectFit:'cover', aspectRatio: '9/16', display: 'block'}} />
+               </div>
+               <p style={{ fontSize: '13px', color: '#64748b', marginTop: '15px', textAlign:'center' }}>Para mostrar servicios o productos.</p>
+            </div>
+
+            {/* 3. MENÚ */}
+            <div style={{ background: '#f8fafc', borderRadius: '24px', padding: '30px 20px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column' }}>
+               <h3 style={{ fontSize: '20px', fontWeight: '800', color: '#2c3e50', display: 'flex', alignItems: 'center', gap: 10, marginBottom: 15 }}>🍔 Menú</h3>
+               <div className="zoom-container">
+                  <img src="/plantilla-menu.png" alt="Menu Mockup" style={{width:'100%', height:'100%', objectFit:'cover', aspectRatio: '9/16', display: 'block'}} />
+               </div>
+               <p style={{ fontSize: '13px', color: '#64748b', marginTop: '15px', textAlign:'center' }}>Gastronomía y delivery.</p>
+            </div>
+
+            {/* 4. PERSONAL */}
+            <div style={{ background: '#f8fafc', borderRadius: '24px', padding: '30px 20px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column' }}>
+               <h3 style={{ fontSize: '20px', fontWeight: '800', color: '#2c3e50', display: 'flex', alignItems: 'center', gap: 10, marginBottom: 15 }}>🪪 Personal</h3>
+               <div className="zoom-container">
+                  <img src="/plantilla-personal.png" alt="Personal Mockup" style={{width:'100%', height:'100%', objectFit:'cover', aspectRatio: '9/16', display: 'block'}} />
+               </div>
+               <p style={{ fontSize: '13px', color: '#64748b', marginTop: '15px', textAlign:'center' }}>Bio link y portafolio.</p>
+            </div>
+
+          </div>
+        </div>
+      </section>
       {/* --- SECCIÓN CÓMO FUNCIONA --- */}
       <section style={{ padding: '80px 5%', background: '#f8fbff' }}>
           <div style={{maxWidth:1200, margin:'0 auto', textAlign:'center'}}>
@@ -226,11 +277,20 @@ export default function LandingPage() {
       </section>
 
       {/* --- FOOTER --- */}
-      <footer style={{ background: '#1a252f', color: '#7f8c8d', padding: '50px 5%', fontSize:14 }}>
-          <div style={{maxWidth:1200, margin:'0 auto', textAlign:'center'}}>
-             <p>© 2024 MyPlatform. Hecho para emprendedores.</p>
-          </div>
+    <footer style={{ background: '#1e293b', color: 'white', padding: '60px 40px', textAlign: 'center' }}>
+        <div style={{ fontSize: '24px', fontWeight: '800', marginBottom: '20px', display:'flex', alignItems:'center', justifyContent:'center', gap:10 }}>
+          <span>🚀</span> Snappy
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'center', gap: '30px', marginBottom: '40px', flexWrap:'wrap' }}>
+          <Link href="#" style={{ color: '#94a3b8', textDecoration: 'none' }}>Términos</Link>
+          <Link href="#" style={{ color: '#94a3b8', textDecoration: 'none' }}>Privacidad</Link>
+          <Link href="#" style={{ color: '#94a3b8', textDecoration: 'none' }}>Contacto</Link>
+          <Link href="/login" style={{ color: '#94a3b8', textDecoration: 'none' }}>Login</Link>
+        </div>
+        <p style={{ color: '#475569', fontSize: '14px' }}>© {new Date().getFullYear()} Snappy Inc. Todos los derechos reservados.</p>
+        <p style={{ color: '#475569', fontSize: '12px', marginTop: 10 }}>Hecho para emprendedores.</p>
       </footer>
+
     </div>
   );
 }

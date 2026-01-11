@@ -75,7 +75,8 @@ export default function Sidebar({ activeTab = 'personalizar' }: SidebarProps) {
 
   const copierLink = () => { 
       if(!shopData.slug) return alert("Define un link primero"); 
-      navigator.clipboard.writeText(`${DOMAIN_URL}/${shopData.slug}`); 
+      // 🔥 CORRECCIÓN: Forzamos minúsculas al copiar para evitar errores históricos
+      navigator.clipboard.writeText(`${DOMAIN_URL}/${shopData.slug.toLowerCase()}`); 
       alert('¡Link copiado!'); 
   };
 
@@ -134,26 +135,23 @@ export default function Sidebar({ activeTab = 'personalizar' }: SidebarProps) {
       setDraggedItemIndex(null);
   };
 
-  // --- 🚀 NUEVA LÓGICA DE SELECCIÓN CON POP-UP Y RESTRICCIÓN ---
+  // --- LÓGICA DE SELECCIÓN CON POP-UP Y RESTRICCIÓN ---
   const selectTemplate = async (val: string) => { 
-      // Si el usuario ya está en esa plantilla, no hacemos nada
       if (shopData.template === val) return;
 
       // 1. POP-UP DE ADVERTENCIA PARA PLAN BÁSICO (Primera vez o contador 0)
       if (shopData.plan === 'simple' && (!shopData.changeCount || shopData.changeCount === 0)) {
           if (!confirm("⚠️ ATENCIÓN: Estás a punto de cambiar tu plantilla.\n\nEn el Plan Básico, tienes 1 cambio permitido ahora. Si confirmas este cambio, la opción de cambiar plantilla se bloqueará por 30 días.\n\n¿Estás seguro de que quieres cambiar a esta plantilla?")) {
-              return; // Si cancela, no hacemos nada
+              return; 
           }
       }
 
-      // 2. LLAMADA AL CONTEXTO (Verifica fechas y ejecuta cambio)
+      // 2. LLAMADA AL CONTEXTO
       const result = await changeTemplate(val);
       
       if (!result.success) {
-          // Si falla (porque ya pasaron sus cambios y no pasaron 30 días), mostramos el mensaje de error
           alert(result.message);
       } else {
-          // Si fue exitoso, reseteamos el índice de edición
           setIndexEditando(0); 
       }
   };
@@ -182,23 +180,26 @@ export default function Sidebar({ activeTab = 'personalizar' }: SidebarProps) {
         className="sidebar" 
         style={{ 
             height: '100vh', 
+            minHeight: '100vh', // 🔥 ASEGURA ALTURA COMPLETA
             position: 'sticky', 
             top: 0, 
             overflowY: 'auto',
             display: 'flex',
-            flexDirection: 'column'
+            flexDirection: 'column',
+            backgroundColor: '#1e293b', // Color de fondo del sidebar para que no se corte visualmente
+            color: 'white' // Texto blanco por defecto
         }}
       >
-        <div style={{marginBottom: 20}}>
-          <h1 style={{fontSize:18, margin:0}}>Hola {shopData.nombreAdmin}</h1>
-          <span style={{fontSize:12, color:'#95a5a6'}}>Panel Admin</span>
+        <div style={{ padding: '20px', marginBottom: 10 }}>
+          <h1 style={{fontSize:18, margin:0, fontWeight:'bold'}}>Hola {shopData.nombreAdmin}</h1>
+          <span style={{fontSize:12, color:'#94a3b8'}}>Panel Admin</span>
         </div>
         
         {/* --- NAV --- */}
-        <nav style={{ marginBottom: '20px' }}>
-          <ul>
-            <li className={activeTab === 'personalizar' ? 'activo' : ''}><Link href="/admin" style={{ display: 'flex', alignItems: 'center', width: '100%', height: '100%', textDecoration: 'none', color: 'inherit' }}>🖌️ Personalizar</Link></li>
-            <li className={activeTab === 'productos' ? 'activo' : ''} style={{opacity: shopData.template === 'personal' ? 0.5 : 1}}>
+        <nav style={{ marginBottom: '20px', padding: '0 10px' }}>
+          <ul style={{listStyle:'none', padding:0, margin:0}}>
+            <li className={activeTab === 'personalizar' ? 'activo' : ''} style={{marginBottom:5}}><Link href="/admin" style={{ display: 'flex', alignItems: 'center', width: '100%', padding:'10px', textDecoration: 'none', color: activeTab === 'personalizar' ? 'white' : '#94a3b8', background: activeTab === 'personalizar' ? '#334155' : 'transparent', borderRadius:8 }}>🖌️ Personalizar</Link></li>
+            <li className={activeTab === 'productos' ? 'activo' : ''} style={{marginBottom:5, opacity: shopData.template === 'personal' ? 0.5 : 1}}>
                 <Link 
                   href="/productos" 
                   onClick={(e) => {
@@ -208,21 +209,21 @@ export default function Sidebar({ activeTab = 'personalizar' }: SidebarProps) {
                       }
                   }} 
                   style={{ 
-                      display: 'flex', alignItems: 'center', width: '100%', height: '100%', textDecoration: 'none', color: 'inherit', 
+                      display: 'flex', alignItems: 'center', width: '100%', padding:'10px', textDecoration: 'none', color: activeTab === 'productos' ? 'white' : '#94a3b8', background: activeTab === 'productos' ? '#334155' : 'transparent', borderRadius:8,
                       cursor: shopData.template === 'personal' ? 'not-allowed' : 'pointer' 
                   }}
                 >
                     📦 Productos
                 </Link>
             </li>
-            <li className={activeTab === 'configuracion' ? 'activo' : ''}><Link href="/configuracion" style={{ display: 'flex', alignItems: 'center', width: '100%', height: '100%', textDecoration: 'none', color: 'inherit' }}>⚙️ Configuración</Link></li>
+            <li className={activeTab === 'configuracion' ? 'activo' : ''} style={{marginBottom:5}}><Link href="/configuracion" style={{ display: 'flex', alignItems: 'center', width: '100%', padding:'10px', textDecoration: 'none', color: activeTab === 'configuracion' ? 'white' : '#94a3b8', background: activeTab === 'configuracion' ? '#334155' : 'transparent', borderRadius:8 }}>⚙️ Configuración</Link></li>
             
             {/* BOTÓN SUPER ADMIN */}
             {shopData.email === 'luchiimee2@gmail.com' && (
-                <li style={{ marginTop: 20, borderTop: '1px solid #34495e', paddingTop: 20 }} className={activeTab === 'superadmin' ? 'activo' : ''}>
+                <li style={{ marginTop: 20, borderTop: '1px solid #334155', paddingTop: 20 }} className={activeTab === 'superadmin' ? 'activo' : ''}>
                     <Link 
                         href="/superadmin" 
-                        style={{ display: 'flex', alignItems: 'center', width: '100%', height: '100%', textDecoration: 'none', color: '#f1c40f', fontWeight: 'bold' }}
+                        style={{ display: 'flex', alignItems: 'center', width: '100%', padding:'10px', textDecoration: 'none', color: '#facc15', fontWeight: 'bold' }}
                     >
                         🕵️‍♂️ Super Admin
                     </Link>
@@ -232,7 +233,7 @@ export default function Sidebar({ activeTab = 'personalizar' }: SidebarProps) {
         </nav>
 
         {activeTab === 'personalizar' && (
-          <div className="ajustes-sidebar">
+          <div className="ajustes-sidebar" style={{padding:'0 15px'}}>
             {/* 1. PLANTILLA */}
             <div className={`card-ajuste ${plantillasAbierto ? 'activo' : ''}`}>
               <div className="ajuste-header" onClick={togglePlantillas}><span className="icono">🎨</span> Plantilla <span className="flecha">▼</span></div>
@@ -248,8 +249,7 @@ export default function Sidebar({ activeTab = 'personalizar' }: SidebarProps) {
                           className={`item-plantilla ${isSelected ? 'seleccionada' : ''}`} 
                           onClick={() => selectTemplate(t.id)} 
                           style={{
-                              // Mantenemos visualmente sutil que está "bloqueado" pero permitimos click para ver el mensaje
-                              border: isSelected && (shopData.plan==='simple' && shopData.templateLocked) ? '2px solid #f1c40f' : ''
+                              border: isSelected && (shopData.plan==='simple' && shopData.templateLocked) ? '2px solid #facc15' : ''
                           }}
                       >
                           <div className="icono-grande">{t.icon}</div>
@@ -280,8 +280,8 @@ export default function Sidebar({ activeTab = 'personalizar' }: SidebarProps) {
                 
                 {/* SELECTOR DE TEMAS PARA 'PERSONAL' */}
                 {shopData.template === 'personal' && (
-                    <div style={{marginTop:15, borderTop:'1px dashed #34495e', paddingTop:10}}>
-                        <label style={{fontSize:11, fontWeight:'bold', color:'#7f8c8d', display:'block', marginBottom:5}}>Estilo de Botones</label>
+                    <div style={{marginTop:15, borderTop:'1px dashed #334155', paddingTop:10}}>
+                        <label style={{fontSize:11, fontWeight:'bold', color:'#94a3b8', display:'block', marginBottom:5}}>Estilo de Botones</label>
                         <div style={{display:'flex', gap:5}}>
                             {['minimal', 'neon', 'glass'].map((theme) => (
                                 <button 
@@ -289,8 +289,8 @@ export default function Sidebar({ activeTab = 'personalizar' }: SidebarProps) {
                                   onClick={() => { if(checkEdit()) updateConfig({ personalTheme: theme }); }}
                                   style={{
                                       flex: 1, padding: '8px', 
-                                      background: shopData.personalTheme === theme ? '#3498db' : '#ecf0f1',
-                                      color: shopData.personalTheme === theme ? 'white' : '#7f8c8d',
+                                      background: shopData.personalTheme === theme ? '#3b82f6' : '#334155',
+                                      color: 'white',
                                       border: 'none', borderRadius: 4, cursor:'pointer', fontSize:11, textTransform:'capitalize'
                                   }}
                                 >
@@ -301,15 +301,15 @@ export default function Sidebar({ activeTab = 'personalizar' }: SidebarProps) {
                     </div>
                 )}
 
-                <div style={{marginTop: 10, borderTop:'1px dashed #34495e', paddingTop:10}}>
-                    <label style={{fontSize:11, fontWeight:'bold', color:'#7f8c8d', display:'block', marginBottom:5}}>Logo para {shopData.template}</label>
-                    <label htmlFor="logo-upload" onClick={(e) => { if(!checkEdit()) e.preventDefault(); }} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '10px', border: '1px dashed #3498db', borderRadius: '6px', cursor: 'pointer', color: '#3498db', fontSize: '11px', background: 'white' }}>
+                <div style={{marginTop: 10, borderTop:'1px dashed #334155', paddingTop:10}}>
+                    <label style={{fontSize:11, fontWeight:'bold', color:'#94a3b8', display:'block', marginBottom:5}}>Logo para {shopData.template}</label>
+                    <label htmlFor="logo-upload" onClick={(e) => { if(!checkEdit()) e.preventDefault(); }} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '10px', border: '1px dashed #3b82f6', borderRadius: '6px', cursor: 'pointer', color: '#3b82f6', fontSize: '11px', background: '#1e293b' }}>
                         {uploading ? '⏳...' : (currentLogo ? '🔄 Cambiar' : '📁 Subir Logo')}
                         <input id="logo-upload" type="file" accept="image/*" onChange={handleLogoUpload} style={{display:'none'}} />
                     </label>
-                    {currentLogo && <div style={{marginTop:5, display:'flex', alignItems:'center', gap:10, fontSize:10, color:'#27ae60'}}>✅ Cargado <img src={currentLogo} style={{width:20, height:20, borderRadius:'50%', objectFit:'cover'}} /></div>}
+                    {currentLogo && <div style={{marginTop:5, display:'flex', alignItems:'center', gap:10, fontSize:10, color:'#22c55e'}}>✅ Cargado <img src={currentLogo} style={{width:20, height:20, borderRadius:'50%', objectFit:'cover'}} /></div>}
                 </div>
-                <button onClick={handleSaveClick} style={{marginTop:15, width:'100%', padding:8, background:'#2c3e50', color:'white', border:'none', borderRadius:4, cursor:'pointer', fontWeight:'bold'}}>💾 Guardar</button>
+                <button onClick={handleSaveClick} style={{marginTop:15, width:'100%', padding:8, background:'#334155', color:'white', border:'none', borderRadius:4, cursor:'pointer', fontWeight:'bold'}}>💾 Guardar</button>
               </div>
             </div>
 
@@ -317,14 +317,29 @@ export default function Sidebar({ activeTab = 'personalizar' }: SidebarProps) {
             <div className={`card-ajuste ${seccionAbierta === 'link' ? 'activo' : ''}`}>
                <div className="ajuste-header" onClick={() => toggleAcordeon('link')}><span className="icono">🔗</span> Link <span className="flecha">▼</span></div>
                <div className={`ajuste-body ${seccionAbierta === 'link' ? 'mostrar' : ''}`}>
-                   <label style={{fontSize:11, fontWeight:'bold', color:'#7f8c8d'}}>Tu URL personalizada</label>
+                   <label style={{fontSize:11, fontWeight:'bold', color:'#94a3b8'}}>Tu URL personalizada</label>
                    <div style={{display:'flex', gap:5, marginBottom:10}}>
-                       <span style={{padding:'8px', background:'#ecf0f1', color:'#7f8c8d', borderRadius:4, fontSize:12, display:'flex', alignItems:'center'}}>snappy.uno/</span>
-                       <input type="text" name="slug" value={shopData.slug || ''} onChange={handleChange} onClick={checkEdit} style={{flex:1, border:'1px solid #bdc3c7', borderRadius:4, padding:5}} placeholder="mi-tienda" />
+                       <span style={{padding:'8px', background:'#334155', color:'#94a3b8', borderRadius:4, fontSize:12, display:'flex', alignItems:'center'}}>snappy.uno/</span>
+                       
+                       {/* 🔥 CORRECCIÓN: Input que fuerza minúsculas al escribir */}
+                       <input 
+                           type="text" 
+                           name="slug" 
+                           value={shopData.slug || ''} 
+                           onChange={(e) => {
+                               if (!checkEdit()) return;
+                               // Convertimos a minúsculas y reemplazamos espacios por guiones
+                               const valorLimpio = e.target.value.toLowerCase().replace(/\s+/g, '-');
+                               updateConfig({ slug: valorLimpio });
+                           }} 
+                           onClick={checkEdit} 
+                           style={{flex:1, border:'1px solid #475569', borderRadius:4, padding:5, background:'#1e293b', color:'white'}} 
+                           placeholder="mi-tienda" 
+                       />
                    </div>
                    <div style={{display:'flex', gap:5}}>
-                       <button onClick={handleSaveClick} style={{flex:1, padding:8, background:'#2c3e50', color:'white', border:'none', borderRadius:4, cursor:'pointer', fontWeight:'bold', fontSize:12}}>💾 Guardar</button>
-                       <button onClick={copierLink} style={{padding:'8px 12px', background:'#27ae60', color:'white', border:'none', borderRadius:4, cursor:'pointer'}} title="Copiar Link">📋</button>
+                       <button onClick={handleSaveClick} style={{flex:1, padding:8, background:'#334155', color:'white', border:'none', borderRadius:4, cursor:'pointer', fontWeight:'bold', fontSize:12}}>💾 Guardar</button>
+                       <button onClick={copierLink} style={{padding:'8px 12px', background:'#22c55e', color:'white', border:'none', borderRadius:4, cursor:'pointer'}} title="Copiar Link">📋</button>
                    </div>
                </div>
             </div>
@@ -341,8 +356,8 @@ export default function Sidebar({ activeTab = 'personalizar' }: SidebarProps) {
                               onClick={() => setIndexEditando(i)} 
                               style={{
                                   padding:'5px', 
-                                  background: indexEditando === i ? '#3498db' : '#2c3e50', 
-                                  color: indexEditando === i ? 'white' : '#bdc3c7', 
+                                  background: indexEditando === i ? '#3b82f6' : '#334155', 
+                                  color: 'white', 
                                   borderRadius:4, border:'none', fontSize:11, width:25, height:25, cursor:'pointer'
                               }}
                           >
@@ -350,7 +365,7 @@ export default function Sidebar({ activeTab = 'personalizar' }: SidebarProps) {
                           </button>
                       ))}
                       {shopData.productos.length < limitItems && (
-                          <button onClick={agregarSiguienteProducto} style={{background:'#2ecc71', color:'white', border:'none', borderRadius:4, width:25, height:25, cursor:'pointer', fontWeight:'bold', fontSize:14, display:'flex', alignItems:'center', justifyContent:'center'}} title="Agregar">+</button>
+                          <button onClick={agregarSiguienteProducto} style={{background:'#22c55e', color:'white', border:'none', borderRadius:4, width:25, height:25, cursor:'pointer', fontWeight:'bold', fontSize:14, display:'flex', alignItems:'center', justifyContent:'center'}} title="Agregar">+</button>
                       )}
                    </div>
 
@@ -358,13 +373,13 @@ export default function Sidebar({ activeTab = 'personalizar' }: SidebarProps) {
                       <div style={{display:'flex', flexDirection:'column', gap:10}}>
                           {shopData.template !== 'personal' ? (
                               <>
-                                  <div><label style={{fontSize:10,fontWeight:'bold',color:'#7f8c8d'}}>Nombre</label><input type="text" name="titulo" value={productoActivo.titulo} onChange={handleProductEdit} onClick={checkEdit}/></div>
-                                  <div><label style={{fontSize:10,fontWeight:'bold',color:'#7f8c8d'}}>Descripción</label><input type="text" name="descripcion" value={productoActivo.descripcion} onChange={handleProductEdit} onClick={checkEdit}/></div>
-                                  <div><label style={{fontSize:10,fontWeight:'bold',color:'#7f8c8d'}}>Precio</label><input type="text" name="precio" value={productoActivo.precio} onChange={handleProductEdit} onClick={checkEdit}/></div>
+                                  <div><label style={{fontSize:10,fontWeight:'bold',color:'#94a3b8'}}>Nombre</label><input type="text" name="titulo" value={productoActivo.titulo} onChange={handleProductEdit} onClick={checkEdit}/></div>
+                                  <div><label style={{fontSize:10,fontWeight:'bold',color:'#94a3b8'}}>Descripción</label><input type="text" name="descripcion" value={productoActivo.descripcion} onChange={handleProductEdit} onClick={checkEdit}/></div>
+                                  <div><label style={{fontSize:10,fontWeight:'bold',color:'#94a3b8'}}>Precio</label><input type="text" name="precio" value={productoActivo.precio} onChange={handleProductEdit} onClick={checkEdit}/></div>
                                   
                                   <div>
-                                      <label style={{fontSize:10,fontWeight:'bold',color:'#7f8c8d', display:'block', marginBottom:5}}>Galería (Drag & Drop)</label>
-                                      <label htmlFor={`sidebar-upload-${productoActivo.id}`} onClick={(e) => { if(!checkEdit()) e.preventDefault(); }} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '10px', border: '1px dashed #3498db', borderRadius: '6px', cursor: 'pointer', color: '#3498db', fontSize: '11px', fontWeight: '500', backgroundColor: uploading ? '#f0f8ff' : 'white', textAlign: 'center', marginBottom: 10 }}>
+                                      <label style={{fontSize:10,fontWeight:'bold',color:'#94a3b8', display:'block', marginBottom:5}}>Galería (Drag & Drop)</label>
+                                      <label htmlFor={`sidebar-upload-${productoActivo.id}`} onClick={(e) => { if(!checkEdit()) e.preventDefault(); }} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '10px', border: '1px dashed #3b82f6', borderRadius: '6px', cursor: 'pointer', color: '#3b82f6', fontSize: '11px', fontWeight: '500', backgroundColor: uploading ? '#1e293b' : 'transparent', textAlign: 'center', marginBottom: 10 }}>
                                               {uploading ? '⏳...' : '📸 Agregar Foto'}
                                               <input id={`sidebar-upload-${productoActivo.id}`} type="file" accept="image/*" onChange={handleImageUpload} style={{display:'none'}} />
                                       </label>
@@ -377,40 +392,40 @@ export default function Sidebar({ activeTab = 'personalizar' }: SidebarProps) {
                                                       onDragStart={() => handleDragStart(idx)}
                                                       onDragOver={handleDragOver}
                                                       onDrop={() => handleDrop(idx)}
-                                                      style={{position:'relative', width:'100%', aspectRatio:'1/1', border: idx===0 ? '3px solid #2ecc71' : '1px solid #ddd', borderRadius:8, cursor:'grab', overflow:'hidden', background:'white'}}
+                                                      style={{position:'relative', width:'100%', aspectRatio:'1/1', border: idx===0 ? '3px solid #22c55e' : '1px solid #475569', borderRadius:8, cursor:'grab', overflow:'hidden', background:'white'}}
                                                   >
                                                       <img src={img} style={{width:'100%', height:'100%', objectFit:'cover'}} />
-                                                      <button onClick={() => { if(checkEdit()) removeImage(idx); }} style={{position:'absolute', top:5, right:5, width:20, height:20, background:'rgba(255,0,0,0.8)', color:'white', borderRadius:'50%', border:'none', fontSize:12, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', zIndex:10}}>×</button>
-                                                      {idx === 0 && <div style={{position:'absolute', bottom:0, left:0, width:'100%', background:'rgba(46, 204, 113, 0.9)', color:'white', fontSize:9, textAlign:'center', fontWeight:'bold', padding:'3px 0'}}>⭐ PORTADA</div>}
+                                                      <button onClick={() => { if(checkEdit()) removeImage(idx); }} style={{position:'absolute', top:5, right:5, width:20, height:20, background:'rgba(220,38,38,0.8)', color:'white', borderRadius:'50%', border:'none', fontSize:12, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', zIndex:10}}>×</button>
+                                                      {idx === 0 && <div style={{position:'absolute', bottom:0, left:0, width:'100%', background:'rgba(34, 197, 94, 0.9)', color:'white', fontSize:9, textAlign:'center', fontWeight:'bold', padding:'3px 0'}}>⭐ PORTADA</div>}
                                                   </div>
                                               ))}
                                       </div>
 
                                       {localGallery.length > 2 && (
-                                          <div style={{marginTop:10, padding:8, background:'#f8f9fa', borderRadius:4, fontSize:10, textAlign:'center', color:'#7f8c8d', border:'1px solid #e9ecef'}}>
+                                          <div style={{marginTop:10, padding:8, background:'#334155', borderRadius:4, fontSize:10, textAlign:'center', color:'#94a3b8', border:'1px solid #475569'}}>
                                              Hay <b>{localGallery.length - 2}</b> foto(s) más. <br/>
-                                             <Link href="/productos" style={{color:'#3498db', fontWeight:'bold', textDecoration:'none'}}>Ver todas en Productos →</Link>
+                                             <Link href="/productos" style={{color:'#3b82f6', fontWeight:'bold', textDecoration:'none'}}>Ver todas en Productos →</Link>
                                           </div>
                                       )}
                                   </div>
                               </>
                           ) : (
                               <>
-                                  <div><label style={{fontSize:10,fontWeight:'bold',color:'#7f8c8d'}}>Texto Botón</label><input type="text" name="titulo" value={productoActivo.titulo} onChange={handleProductEdit} onClick={checkEdit}/></div>
-                                  <div><label style={{fontSize:10,fontWeight:'bold',color:'#7f8c8d'}}>Link Destino</label><input type="text" name="url" value={productoActivo.url} onChange={handleProductEdit} onClick={checkEdit}/></div>
+                                  <div><label style={{fontSize:10,fontWeight:'bold',color:'#94a3b8'}}>Texto Botón</label><input type="text" name="titulo" value={productoActivo.titulo} onChange={handleProductEdit} onClick={checkEdit}/></div>
+                                  <div><label style={{fontSize:10,fontWeight:'bold',color:'#94a3b8'}}>Link Destino</label><input type="text" name="url" value={productoActivo.url} onChange={handleProductEdit} onClick={checkEdit}/></div>
                               </>
                           )}
                           
                           {/* LINK VER MÁS */}
-                          {shopData.template !== 'personal' && <div style={{marginTop:5, textAlign:'center'}}><Link href="/productos" style={{fontSize:11, color:'#3498db', textDecoration:'none'}}>Ver todos los detalles →</Link></div>}
+                          {shopData.template !== 'personal' && <div style={{marginTop:5, textAlign:'center'}}><Link href="/productos" style={{fontSize:11, color:'#3b82f6', textDecoration:'none'}}>Ver todos los detalles →</Link></div>}
                           
                           {/* BOTÓN DE ELIMINAR */}
                           <button 
                               onClick={handleDeleteItem} 
                               style={{
                                   marginTop:10, width:'100%', padding:'8px', 
-                                  background:'#fee2e2', color:'#ef4444', 
-                                  border:'1px solid #fca5a5', borderRadius:6, 
+                                  background:'#7f1d1d', color:'#fca5a5', 
+                                  border:'1px solid #991b1b', borderRadius:6, 
                                   cursor:'pointer', fontSize:'11px', fontWeight:'bold'
                               }}
                           >
@@ -418,16 +433,16 @@ export default function Sidebar({ activeTab = 'personalizar' }: SidebarProps) {
                           </button>
 
                       </div>
-                   ) : <span style={{fontSize:12, color:'#95a5a6'}}>Agrega un ítem para editar.</span>}
+                   ) : <span style={{fontSize:12, color:'#94a3b8'}}>Agrega un ítem para editar.</span>}
                </div>
             </div>
           </div>
         )}
         
         {/* FOOTER PEGADO AL FINAL */}
-        <div style={{marginTop:'auto', width:'100%', borderTop:'1px solid #34495e', paddingTop: 20}}>
-             <div className="producto" style={{marginBottom:10}}><button><a href={`${DOMAIN_URL}/${shopData.slug}`} target="_blank" style={{color:'white', textDecoration:'none'}}>Ver {shopData.template} →</a></button></div>
-             <div className="cerrar-sesion"><button onClick={handleLogout} style={{color:'#ffffffff', textAlign: 'center', width:'100%', background:'transparent', border:'none', cursor:'pointer'}}>Salir</button></div>
+        <div style={{marginTop:'auto', width:'100%', borderTop:'1px solid #334155', paddingTop: 20, paddingBottom: 20, paddingLeft: 15, paddingRight: 15}}>
+             <div className="producto" style={{marginBottom:10}}><button style={{width:'100%', padding:'10px', background:'#3b82f6', border:'none', borderRadius:6, cursor:'pointer'}}><a href={`${DOMAIN_URL}/${shopData.slug}`} target="_blank" style={{color:'white', textDecoration:'none', fontWeight:'bold', display:'block'}}>Ver {shopData.template} →</a></button></div>
+             <div className="cerrar-sesion"><button onClick={handleLogout} style={{color:'#94a3b8', textAlign: 'center', width:'100%', background:'transparent', border:'none', cursor:'pointer', fontSize:14}}>Salir</button></div>
         </div>
         
       </aside>
