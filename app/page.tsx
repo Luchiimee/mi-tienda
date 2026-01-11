@@ -204,6 +204,38 @@ export default function LandingPage() {
           </div>
         </div>
       </section>
+      {/* --- SECCIÓN FLUJO DE COMPRA (CLIENTE) --- */}
+      <section style={{ padding: '80px 20px', background: '#f8fafc' }}>
+        <div style={{ maxWidth: '1200px', margin: '0 auto', textAlign: 'center' }}>
+          <h2 style={{ fontSize: '36px', fontWeight: '900', color: '#2c3e50', marginBottom: '60px' }}>Así de fácil compran tus clientes</h2>
+          
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '40px' }}>
+            
+            {/* PASO 1 */}
+            <div style={{ background: 'white', padding: '40px 30px', borderRadius: '24px', boxShadow: '0 10px 30px rgba(0,0,0,0.05)' }}>
+               <div style={{ width: 80, height: 80, background: '#e0f2fe', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '35px', margin: '0 auto 20px' }}>👀</div>
+               <h3 style={{ fontSize: '22px', fontWeight: 'bold', color: '#2c3e50', marginBottom: '15px' }}>1. Ven tu catálogo</h3>
+               <p style={{ color: '#64748b', fontSize: '16px', lineHeight: '1.6' }}>Ingresan a tu link desde Instagram o redes. Ven tus fotos y precios actualizados al instante.</p>
+            </div>
+
+            {/* PASO 2 */}
+            <div style={{ background: 'white', padding: '40px 30px', borderRadius: '24px', boxShadow: '0 10px 30px rgba(0,0,0,0.05)' }}>
+               <div style={{ width: 80, height: 80, background: '#fef9c3', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '35px', margin: '0 auto 20px' }}>🛒</div>
+               <h3 style={{ fontSize: '22px', fontWeight: 'bold', color: '#2c3e50', marginBottom: '15px' }}>2. Llenan el carrito</h3>
+               <p style={{ color: '#64748b', fontSize: '16px', lineHeight: '1.6' }}>Eligen productos, talles o gustos y los suman al carrito. Sin registros molestos.</p>
+            </div>
+
+            {/* PASO 3 */}
+            <div style={{ background: 'white', padding: '40px 30px', borderRadius: '24px', boxShadow: '0 10px 30px rgba(0,0,0,0.05)', border: '2px solid #22c55e', position: 'relative' }}>
+               <div style={{ position: 'absolute', top: -15, right: 20, background: '#22c55e', color: 'white', padding: '5px 15px', borderRadius: 20, fontSize: 12, fontWeight: 'bold' }}>¡SIN COMISIÓN!</div>
+               <div style={{ width: 80, height: 80, background: '#dcfce7', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '35px', margin: '0 auto 20px' }}>📲</div>
+               <h3 style={{ fontSize: '22px', fontWeight: 'bold', color: '#2c3e50', marginBottom: '15px' }}>3. Te llega a WhatsApp</h3>
+               <p style={{ color: '#64748b', fontSize: '16px', lineHeight: '1.6' }}>El cliente toca "Enviar" y recibes el detalle completo en tu chat para coordinar el pago y envío.</p>
+            </div>
+
+          </div>
+        </div>
+      </section>
       {/* --- SECCIÓN CÓMO FUNCIONA --- */}
       <section style={{ padding: '80px 5%', background: '#f8fbff' }}>
           <div style={{maxWidth:1200, margin:'0 auto', textAlign:'center'}}>
@@ -265,7 +297,53 @@ export default function LandingPage() {
 
         </div>
       </section>
+{/* --- SECCIÓN PREGUNTAS FRECUENTES (FAQ) --- */}
+      <section style={{ padding: '80px 20px', background: '#f8fafc' }}>
+        <div style={{ maxWidth: '800px', margin: '0 auto' }}>
+          <h2 style={{ textAlign: 'center', fontSize: '32px', color: '#2c3e50', marginBottom: '50px' }}>Preguntas Frecuentes</h2>
+          
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            
+            {/* Pregunta 1 */}
+            <details style={{ background: '#f8fafc', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0', cursor: 'pointer' }}>
+              <summary style={{ fontWeight: 'bold', color: '#2c3e50', fontSize: '18px', listStyle: 'none' }}>🤔 ¿Cobran comisión por venta?</summary>
+              <p style={{ marginTop: '10px', color: '#64748b', lineHeight: '1.6' }}>
+                ¡No! Snappy no cobra ninguna comisión por tus ventas. Todo lo que vendes es 100% tuyo. Solo pagas la suscripción mensual del servicio.
+              </p>
+            </details>
 
+            {/* Pregunta 2 */}
+            <details style={{ background: '#f8fafc', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0', cursor: 'pointer' }}>
+              <summary style={{ fontWeight: 'bold', color: '#2c3e50', fontSize: '18px' }}>💳 ¿Necesito tarjeta de crédito para probar?</summary>
+              <p style={{ marginTop: '10px', color: '#64748b', lineHeight: '1.6' }}>
+                No. Puedes crear tu cuenta y usar el periodo de prueba gratis sin ingresar ninguna tarjeta. Solo pagas si decides continuar.
+              </p>
+            </details>
+
+            {/* Pregunta 3 */}
+            <details style={{ background: '#f8fafc', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0', cursor: 'pointer' }}>
+              <summary style={{ fontWeight: 'bold', color: '#2c3e50', fontSize: '18px' }}>🚀 ¿Puedo usar mi propio dominio?</summary>
+              <p style={{ marginTop: '10px', color: '#64748b', lineHeight: '1.6' }}>
+                Por el momento te damos un link corto y profesional (snappy.uno/tu-marca) listo para usar en Instagram y redes.
+              </p>
+            </details>
+
+            {/* Pregunta 4 (AYUDA / WHATSAPP) */}
+            <div style={{ background: '#ecfdf5', padding: '25px', borderRadius: '12px', border: '1px solid #10b981', textAlign: 'center', marginTop: '20px' }}>
+              <h3 style={{ color: '#047857', fontSize: '20px', margin: '0 0 10px 0' }}>¿Necesitas ayuda para configurar tu tienda?</h3>
+              <p style={{ color: '#065f46', marginBottom: '15px' }}>Si tienes dudas o no sabes por dónde empezar, habla con nosotros.</p>
+              <a 
+                href="https://wa.me/5492324694045" // ⚠️ REEMPLAZA CON TU NÚMERO
+                target="_blank"
+                style={{ display: 'inline-block', background: '#10b981', color: 'white', padding: '10px 20px', borderRadius: '50px', textDecoration: 'none', fontWeight: 'bold', boxShadow: '0 4px 6px rgba(16, 185, 129, 0.3)' }}
+              >
+                📲 Escribir a Soporte por WhatsApp
+              </a>
+            </div>
+
+          </div>
+        </div>
+      </section>
       {/* --- CTA FINAL --- */}
       <section style={{ padding: '80px 20px', textAlign: 'center', background: '#2c3e50', color: 'white' }}>
           <h2 style={{fontSize:35, marginBottom:20}}>Empieza tu negocio hoy</h2>
@@ -290,7 +368,35 @@ export default function LandingPage() {
         <p style={{ color: '#475569', fontSize: '14px' }}>© {new Date().getFullYear()} Snappy Inc. Todos los derechos reservados.</p>
         <p style={{ color: '#475569', fontSize: '12px', marginTop: 10 }}>Hecho para emprendedores.</p>
       </footer>
-
+{/* --- BOTÓN FLOTANTE DE WHATSAPP --- */}
+      <a 
+        href="https://wa.me/5492324694045" // ⚠️ CAMBIA ESTO POR TU NÚMERO REAL (Ej: 54911...)
+        target="_blank" 
+        rel="noopener noreferrer"
+        style={{
+          position: 'fixed',
+          bottom: '30px',
+          right: '30px',
+          backgroundColor: '#25D366',
+          color: 'white',
+          borderRadius: '50%',
+          width: '60px',
+          height: '60px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: '30px',
+          boxShadow: '0 4px 15px rgba(37, 211, 102, 0.4)',
+          zIndex: 1000,
+          textDecoration: 'none',
+          cursor: 'pointer',
+          transition: 'transform 0.3s ease'
+        }}
+        onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.1)'}
+        onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
+      >
+        💬
+      </a>
     </div>
   );
 }
