@@ -204,7 +204,7 @@ function ConfiguracionContent() {
   const currentPlanName = shopData.plan === 'full' ? 'Plan Full 👑' : 'Plan Básico';
 
   return (
-      <main className="main-content" style={{ padding: '40px', overflowY: 'auto', background: '#f8fafc', width: '100%', minHeight: '100vh', justifyContent: 'start', flex: 1 }}>
+      <main className="main-content" style={{ padding: '40px', background: '#f8fafc', width: '100%', height: '100vh', overflowY: 'auto', justifyContent: 'start', flex: 1 }}>
         
         <div style={{display:'flex', alignItems:'center', justifyContent:'center', gap:10, marginBottom:10}}>
             <span style={{fontSize:28, color:'#94a3b8'}}>⚙️</span>
