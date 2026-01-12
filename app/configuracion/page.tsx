@@ -1,411 +1,341 @@
 'use client';
 
-import { useState, useEffect, Suspense } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { supabase } from '@/lib/supabaseClient';
-import { useShop } from '../context/ShopContext';
-import Sidebar from '../components/Sidebar';
-import { DOMAIN_URL } from '@/lib/constants';
 
-function ConfiguracionContent() {
-  // 1. TRAEMOS 'loading' DEL CONTEXTO
-  const { shopData, loading, updateProfile, changePassword, updateTemplateSlug, resetTemplate, activateTrial } = useShop();
-  const router = useRouter();
-  const searchParams = useSearchParams();
+const ADMIN_EMAIL = 'luchiimee2@gmail.com'.toLowerCase();
 
-  const [newPass, setNewPass] = useState('');
-  const [loadingPass, setLoadingPass] = useState(false);
-  const [loadingPago, setLoadingPago] = useState(false);
-  const [loadingPlan, setLoadingPlan] = useState(false);
-  const [loadingCancel, setLoadingCancel] = useState(false);
+// --- DATOS POR DEFECTO (Tus "Salva vidas" locales) ---
+const DEFAULT_TIENDA = [
+  { titulo: 'Remera Básica', descripcion: 'Algodón 100% premium.', precio: '12000', galeria: [], imagen_url: 'https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?auto=format&fit=crop&w=500&q=60', tipo: 'producto' },
+  { titulo: 'Jean Slim Fit', descripcion: 'Denim elastizado azul.', precio: '45000', galeria: [], imagen_url: 'https://images.unsplash.com/photo-1542272617-08f086303293?auto=format&fit=crop&w=500&q=60', tipo: 'producto' }
+];
+const DEFAULT_CATALOGO = [
+  { titulo: 'Sofá 3 Cuerpos', descripcion: 'Pana antimanchas.', precio: '', galeria: [], imagen_url: 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=500&q=60', tipo: 'catalogo' },
+  { titulo: 'Mesa Ratona', descripcion: 'Madera maciza.', precio: '', galeria: [], imagen_url: 'https://images.unsplash.com/photo-1532372320572-cda25653a26d?auto=format&fit=crop&w=500&q=60', tipo: 'catalogo' }
+];
+const DEFAULT_MENU = [
+  { titulo: 'Hamburguesa Doble', descripcion: 'Cheddar y bacon.', precio: '9500', galeria: [], imagen_url: 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?auto=format&fit=crop&w=500&q=60', tipo: 'gastronomia' },
+  { titulo: 'Papas Rústicas', descripcion: 'Con cheddar y verdeo.', precio: '4500', galeria: [], imagen_url: 'https://images.unsplash.com/photo-1630384060421-cb20d0e0649d?auto=format&fit=crop&w=500&q=60', tipo: 'gastronomia' }
+];
+const DEFAULT_LINKS = [
+  { titulo: 'Mi WhatsApp', url_destino: 'https://wa.me/', descripcion: '', precio: '', galeria: [], tipo: 'enlace' },
+  { titulo: 'Mi Instagram', url_destino: 'https://instagram.com', descripcion: '', precio: '', galeria: [], tipo: 'enlace' }
+];
 
-  const [editingSlugs, setEditingSlugs] = useState<{[key:string]: string}>({});
-  
-  const [couponCode, setCouponCode] = useState('');
-  const [appliedCoupon, setAppliedCoupon] = useState<{code: string, percent: number} | null>(null);
-  const [validatingCoupon, setValidatingCoupon] = useState(false);
+export type Product = { id: string; titulo: string; descripcion: string; precio: string; galeria?: string[]; url?: string; shop_id?: string; tipo?: string; imagen?: string; imagen_url?: string; };
 
-  // 2. INICIALIZACIÓN INTELIGENTE: Si ya sabemos el plan, lo usamos. Si no, esperamos.
-  const [selectedPlan, setSelectedPlan] = useState<'simple' | 'full'>(shopData.plan === 'simple' ? 'simple' : 'full');
-  const [selectedTemplate, setSelectedTemplate] = useState<string>(shopData.templateLocked || '');
+type ShopData = {
+  id?: string; email: string; nombreAdmin: string; template: string; slug: string; slugs: { [key: string]: string }; logos: { [key: string]: string }; 
+  nombreNegocio: string; descripcion: string; whatsapp: string; logo: string; plantillaVisual: string; personalTheme: string;
+  plan: 'none' | 'simple' | 'full'; 
+  nombreDueno: string; apellidoDueno: string; telefonoDueno: string;
+  templateLocked: string | null; lastTemplateChange: string | null; changeCount: number;
+  productos: Product[]; nombres: { [key: string]: string }; descripciones: { [key: string]: string }; whatsapps: { [key: string]: string };
+  subscription_status?: string; trial_start_date?: string; mp_subscription_id?: string; plan_price?: number;
+};
 
-  const PRECIO_SIMPLE = 15200;
-  const PRECIO_FULL = 20100;
+const emptyState: ShopData = {
+  email: '', nombreAdmin: '', template: 'tienda', slug: '', slugs: {}, logos: {}, nombreNegocio: '', descripcion: '', whatsapp: '', logo: '', 
+  plantillaVisual: 'Minimal', personalTheme: 'glass', plan: 'none', nombreDueno: '', apellidoDueno: '', telefonoDueno: '', 
+  templateLocked: null, lastTemplateChange: null, changeCount: 0, productos: [], nombres: {}, descripciones: {}, whatsapps: {},
+  subscription_status: 'trial', trial_start_date: '', mp_subscription_id: '', plan_price: 0
+};
 
-  // DEFINIMOS ESTADOS
-  const isTrial = shopData.subscription_status === 'trial';
-  const isActive = shopData.subscription_status === 'active';
-  const isNone = shopData.subscription_status === 'none'; 
-  const isExpired = shopData.subscription_status === 'past_due' || (!isActive && !isTrial && !isNone);
-  
-  const trialStart = new Date(shopData.trial_start_date || shopData.created_at || new Date());
-  const diffDays = Math.ceil(Math.abs(new Date().getTime() - trialStart.getTime()) / (1000 * 60 * 60 * 24)); 
-  const daysLeft = Math.max(0, 14 - diffDays);
+const ShopContext = createContext<any>(null);
 
-  // CÁLCULO DE BLOQUEO
-  let daysRemainingLock = 0;
-  if (shopData.plan === 'simple' && shopData.changeCount && shopData.changeCount >= 1 && shopData.lastTemplateChange) {
-      const lastChange = new Date(shopData.lastTemplateChange);
-      const now = new Date();
-      const diffTime = Math.abs(now.getTime() - lastChange.getTime());
-      const diffDaysLock = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
-      if (diffDaysLock < 30) daysRemainingLock = 30 - diffDaysLock;
-  }
-  
-  const isSelectorLocked = daysRemainingLock > 0 && shopData.plan === 'simple';
+export const ShopProvider = ({ children }: { children: ReactNode }) => {
+  const [shopData, setShopData] = useState<ShopData>(emptyState);
+  const [loading, setLoading] = useState(true);
 
-  const getPrice = () => {
-      const base = selectedPlan === 'full' ? PRECIO_FULL : PRECIO_SIMPLE;
-      if (appliedCoupon) return base - (base * appliedCoupon.percent / 100);
-      return base;
-  };
+  const getTipo = (tmpl: string) => (tmpl === 'menu' ? 'gastronomia' : tmpl === 'personal' ? 'enlace' : tmpl === 'catalogo' ? 'catalogo' : 'producto');
+  const getDefaults = (tmpl: string) => (tmpl === 'menu' ? DEFAULT_MENU : tmpl === 'personal' ? DEFAULT_LINKS : tmpl === 'catalogo' ? DEFAULT_CATALOGO : DEFAULT_TIENDA);
 
-  useEffect(() => { setEditingSlugs(shopData.slugs); }, [shopData.slugs]);
-  
-  // Sincronizar selección visual con el plan real cuando cargan los datos
-  useEffect(() => {
-      if (shopData.plan === 'simple') {
-          setSelectedPlan('simple');
-          if(shopData.templateLocked) setSelectedTemplate(shopData.templateLocked);
-      } else if (shopData.plan === 'full') {
-          setSelectedPlan('full'); 
-      }
-  }, [shopData.plan, shopData.templateLocked]);
-
-  useEffect(() => {
-    const checkUser = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) router.push('/login');
-    };
-    checkUser();
-  }, [router]);
-
-  useEffect(() => {
-    const status = searchParams.get('status');
-    const collectionStatus = searchParams.get('collection_status');
-    const preapprovalId = searchParams.get('preapproval_id'); 
-
-    if ((status === 'success' || collectionStatus === 'approved') && shopData.id) {
-        const activarCuenta = async () => {
-            const updates: any = { subscription_status: 'active' };
-            if (preapprovalId) updates.mp_subscription_id = preapprovalId;
-            const { error } = await supabase.from('shops').update(updates).eq('id', shopData.id);
-            if (!error) {
-                alert("🎉 ¡Suscripción confirmada y ACTIVA!");
-                router.replace('/configuracion');
-                setTimeout(() => window.location.reload(), 1000);
-            }
-        };
-        if (shopData.subscription_status !== 'active') activarCuenta();
-    }
-  }, [searchParams, shopData.id, shopData.subscription_status, router]);
-
-  const handleApplyCoupon = async () => {
-      if(!couponCode) return;
-      setValidatingCoupon(true);
-      const { data } = await supabase.from('coupons').select('*').eq('code', couponCode.toUpperCase()).eq('active', true).single();
-      setValidatingCoupon(false);
-      if (data) { setAppliedCoupon({ code: data.code, percent: data.discount_percent }); alert(`✅ ¡Cupón Aplicado! ${data.discount_percent}% de descuento.`); } 
-      else { setAppliedCoupon(null); alert("❌ Cupón inválido o expirado."); }
-  };
-
-  const handlePlanActivation = async () => {
-    if (isSelectorLocked && selectedPlan === 'simple' && selectedTemplate !== shopData.templateLocked) {
-        alert(`🔒 No puedes cambiar de plantilla. Faltan ${daysRemainingLock} días para desbloquear el cambio.`);
-        return;
-    }
-
-    if (isActive && selectedPlan !== shopData.plan) {
-        const nuevoPrecio = selectedPlan === 'full' ? PRECIO_FULL : PRECIO_SIMPLE;
-        if(!confirm(`⚠️ ATENCIÓN: Estás cambiando al Plan ${selectedPlan.toUpperCase()}. \n\nSi continúas, tu próxima factura será de $${nuevoPrecio}. ¿Confirmar cambio?`)) return;
-    }
-
-    setLoadingPlan(true);
-    if (selectedPlan === 'simple' && !selectedTemplate) {
-        alert("⚠️ Para el Plan Básico debes elegir una plantilla.");
-        setLoadingPlan(false);
-        return;
-    }
-    const success = await activateTrial(selectedPlan, selectedPlan === 'simple' ? selectedTemplate : undefined);
-    setLoadingPlan(false);
-    
-    if (success) {
-        alert(isTrial || isNone ? "✅ Plan activado con éxito." : "🎉 ¡Cambio realizado!");
-        window.location.reload(); 
-    } else {
-        alert("Error al activar plan.");
-    }
-  };
-
-  const handleSubscribe = async () => {
-      if (isActive && selectedPlan !== shopData.plan) {
-          if(!confirm(`⚠️ Estás por suscribirte al Plan ${selectedPlan.toUpperCase()} ($${getPrice()}). Esto reemplazará tu plan actual. ¿Continuar?`)) return;
-      }
-
-      setLoadingPago(true);
-      try {
-        const updates: any = { plan: selectedPlan };
-        if (selectedPlan === 'simple' && selectedTemplate) {
-            updates.template_locked = selectedTemplate;
-            updates.template = selectedTemplate;
-        }
-        await updateProfile(updates);
-
-        const response = await fetch('/api/crear-suscripcion', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                email: shopData.email,
-                plan: selectedPlan,
-                shopId: shopData.id,
-                couponCode: appliedCoupon ? appliedCoupon.code : null 
-            }),
-        });
-
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error);
-        if (data.url) window.location.href = data.url;
-        else alert('Error: No se recibió link de pago.');
-
-      } catch (error: any) {
-          console.error(error);
-          alert(`Error: ${error.message}`);
-      } finally {
-          setLoadingPago(false);
-      }
-  };
-
-  const handleCancelSubscription = async () => {
-      if(!shopData.mp_subscription_id) return alert("No tienes suscripción activa vinculada.");
-      if(!confirm("⚠️ ¿Cancelar suscripción? Se detendrá el cobro automático.")) return;
-
-      setLoadingCancel(true);
-      try {
-          const res = await fetch('/api/cancelar-suscripcion', {
-              method: 'POST',
-              headers: {'Content-Type': 'application/json'},
-              body: JSON.stringify({ subscriptionId: shopData.mp_subscription_id })
-          });
-          if(!res.ok) throw new Error("Error al conectar con Mercado Pago");
-
-          await supabase.from('shops').update({ subscription_status: 'cancelled', plan: 'none', mp_subscription_id: null }).eq('id', shopData.id);
-          alert("✅ Suscripción cancelada.");
-          window.location.reload();
-      } catch (error:any) { alert("Error: " + error.message); } finally { setLoadingCancel(false); }
-  };
-
-  const handlePassChange = async () => { if (newPass.length < 6) return alert("Mínimo 6 caracteres."); setLoadingPass(true); const err = await changePassword(newPass); setLoadingPass(false); if (err) alert("Error: " + err.message); else { alert("¡Contraseña actualizada!"); setNewPass(''); } };
-  const handleSaveSpecificSlug = async (tmpl: string) => { const newVal = editingSlugs[tmpl]; if(!newVal) return alert("Link vacío"); await updateTemplateSlug(tmpl, newVal); alert(`✅ Actualizado.`); };
-  const handleDeactivate = async (tmpl: string) => { if(confirm(`¿ELIMINAR ${tmpl}?`)) await resetTemplate(tmpl); };
-  const handleCopy = (slug: string) => { navigator.clipboard.writeText(`${DOMAIN_URL}/${slug}`); alert("¡Copiado!"); };
-  const handleSaveName = async () => { await updateProfile({ nombreDueno: shopData.nombreDueno, apellidoDueno: shopData.apellidoDueno }); alert("✅ Datos guardados."); };
-
-  const templatesList = [ { id: 'tienda', label: 'Tienda Online', icon: '🛍️', color: '#3b82f6' }, { id: 'catalogo', label: 'Catálogo Digital', icon: '📒', color: '#8b5cf6' }, { id: 'menu', label: 'Menú Gastronómico', icon: '🍽️', color: '#f59e0b' }, { id: 'personal', label: 'Bio Personal', icon: '🪪', color: '#ec4899' } ];
-  const activeTemplates = templatesList.filter(t => { if (shopData.plan === 'simple') return shopData.templateLocked === t.id && shopData.slugs[t.id]; return shopData.slugs[t.id]; });
-
-  const currentPlanName = shopData.plan === 'full' ? 'Plan Full 👑' : 'Plan Básico';
-
-  // 3. PANTALLA DE CARGA (Para evitar el "flicker" de plan full a básico)
-  if (loading) {
-      return (
-          <main style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', background: '#f8fafc' }}>
-              <div style={{ textAlign: 'center', color: '#64748b' }}>
-                  <div style={{ fontSize: '40px', marginBottom: '10px' }}>⚡</div>
-                  <p style={{ fontWeight: 'bold' }}>Cargando configuración...</p>
-              </div>
-          </main>
-      );
-  }
-
-  return (
-      <main className="main-content" style={{ padding: '20px', background: '#f8fafc', width: '100%', height: '100vh', overflowY: 'auto', justifyContent: 'start', flex: 1 }}>
+  // --- CARGA DE DATOS ROBUSTA ---
+  const loadShopData = async (userParam?: any) => {
+    try {
+        let user = userParam;
         
-        <div style={{display:'flex', alignItems:'center', justifyContent:'center', gap:10, marginBottom:10}}>
-            <span style={{fontSize:28, color:'#94a3b8'}}>⚙️</span>
-            <h1 style={{ margin: 0, color: '#1e293b', fontSize: 28, fontWeight: '800' }}>Configuración</h1>
-        </div>
+        if (!user) {
+            const { data: { user: fetchedUser } } = await supabase.auth.getSession().then(res => res.data.session ? { data: { user: res.data.session.user } } : { data: { user: null } });
+            user = fetchedUser;
+        }
 
-        {/* --- STATUS BAR --- */}
-        <div style={{ display:'flex', justifyContent:'center', marginBottom: 30 }}>
-            <div style={{ 
-                background: isActive ? '#dcfce7' : (isExpired ? '#fef2f2' : (isNone ? '#eff6ff' : 'white')), 
-                padding: '10px 25px', borderRadius: 50, 
-                border: isActive ? '1px solid #22c55e' : (isExpired ? '1px solid #fca5a5' : (isNone ? '1px solid #3b82f6' : '1px solid #e2e8f0')), 
-                display:'flex', alignItems:'center', gap:10, boxShadow:'0 4px 15px rgba(0,0,0,0.05)' 
-            }}>
-                <span style={{fontSize:20}}>{isActive ? '⭐' : (isExpired ? '⏳' : (isNone ? '🚀' : '✨'))}</span>
-                <div style={{textAlign:'left'}}>
-                    <div style={{fontSize:11, color:'#64748b', fontWeight:'bold', textTransform:'uppercase', letterSpacing:1}}>
-                        {isActive ? 'Suscripción Activa' : (isExpired ? 'Periodo Finalizado' : (isNone ? 'Bienvenido' : 'Periodo de Prueba'))}
-                    </div>
-                    <div style={{fontSize:15, fontWeight:'bold', color: isActive ? '#15803d' : (isExpired ? '#dc2626' : (isNone ? '#1e40af' : '#334155'))}}>
-                        {isActive ? currentPlanName : (isExpired ? '¡Tiempo Agotado!' : (isNone ? 'Comienza eligiendo un plan' : `${daysLeft} días restantes`))}
-                    </div>
-                </div>
-            </div>
-        </div>
+        if (!user || !user.email) { setLoading(false); return; }
+        
+        const userEmail = user.email.toLowerCase();
+        
+        // 1. BUSCAR TIENDA (Evitamos duplicados con limit 1)
+        let { data: shop } = await supabase
+            .from('shops')
+            .select('*')
+            .eq('owner_id', user.id)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '25px', width: '100%' }}>
-            
-            {/* 1. LINKS ACTIVOS */}
-            <div style={{ background: 'white', padding: 30, borderRadius: 16, boxShadow: '0 4px 20px rgba(0,0,0,0.03)', border:'1px solid #f1f5f9', gridColumn: '1 / -1' }}>
-                <h3 style={{ marginTop: 0, fontSize: 16, color: '#334155', display:'flex', alignItems:'center', gap:8, marginBottom:20 }}>🚀 <span style={{fontWeight:'bold'}}>Mis Links Activos</span></h3>
-                {activeTemplates.length > 0 ? (
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 15 }}>
-                        {activeTemplates.map((t) => (
-                            <div key={t.id} style={{ background: 'white', padding: 15, borderRadius: 12, border: '1px solid #e2e8f0', boxShadow: '0 2px 5px rgba(0,0,0,0.03)', display: 'flex', flexDirection: 'column', gap: 10, position: 'relative', overflow: 'hidden' }}>
-                                <div style={{position:'absolute', left:0, top:0, bottom:0, width:4, background: t.color}}></div>
-                                <div style={{display:'flex', alignItems:'center', justifyContent:'space-between', paddingLeft: 10}}>
-                                    <div style={{display:'flex', alignItems:'center', gap:8}}><span style={{fontSize:22}}>{t.icon}</span><span style={{fontWeight:'bold', fontSize:14, color:'#334155'}}>{t.label}</span></div>
-                                    <button onClick={() => handleDeactivate(t.id)} title="Desactivar" style={{background:'transparent', border:'none', cursor:'pointer', fontSize:16, opacity:0.5}}>🗑️</button>
-                                </div>
-                                <div style={{display:'flex', alignItems:'center', background:'#f8fafc', border:'1px solid #cbd5e1', borderRadius:8, padding:'5px 10px', marginLeft: 10}}>
-                                    <span style={{fontSize:11, color:'#94a3b8', marginRight:2}}>{DOMAIN_URL.replace('https://','')}/</span>
-                                    <input type="text" value={editingSlugs[t.id] || ''} onChange={(e) => setEditingSlugs({...editingSlugs, [t.id]: e.target.value})} style={{border: 'none', background: 'transparent', fontWeight: '600', color: '#334155', outline: 'none', width: '100%', minWidth: 0, fontSize: 13}} />
-                                    <span style={{fontSize:12}}>✏️</span>
-                                </div>
-                                <div style={{display:'flex', gap:8, paddingLeft: 10, marginTop: 5}}>
-                                    <button onClick={() => handleSaveSpecificSlug(t.id)} style={{flex:1, background: t.color, color:'white', border:'none', borderRadius:6, padding:'6px', fontSize:12, fontWeight:'bold', cursor:'pointer'}}>Guardar</button>
-                                    <button onClick={() => handleCopy(editingSlugs[t.id])} style={{flex:1, background:'white', border:`1px solid ${t.color}`, color: t.color, borderRadius:6, padding:'6px', fontSize:12, fontWeight:'bold', cursor:'pointer'}}>Copiar</button>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                ) : (
-                    <div style={{textAlign:'center', padding:30, color:'#94a3b8', border:'2px dashed #e2e8f0', borderRadius:12, background:'#f9fafb'}}>
-                        <div style={{fontSize:30, marginBottom:10}}>🕸️</div>
-                        <p style={{margin:0, fontSize:14}}>No tienes links activos.</p>
-                        {shopData.plan === 'simple' && !shopData.templateLocked && <p style={{fontSize:12, color:'#d97706'}}>👆 Primero elige tu plantilla en el Plan Básico.</p>}
-                        {isNone && <p style={{fontSize:12, color:'#3b82f6', fontWeight:'bold', marginTop:5}}>¡Elige un plan abajo para activar tu primer link!</p>}
-                    </div>
-                )}
-            </div>
+        // 2. RETROCOMPATIBILIDAD
+        if (!shop) {
+             let { data: shopV2 } = await supabase.from('shops').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(1).maybeSingle();
+             shop = shopV2;
+             
+             // 3. CREACIÓN (SI NO EXISTE)
+             if (!shop) {
+                console.log("Creando tienda nueva...");
+                try { await supabase.from('users').upsert({ id: user.id, email: userEmail }, { onConflict: 'id' }); } catch (e) {}
 
-            {/* 2. CARD PLANES */}
-            <div style={{ background: 'white', padding: 30, borderRadius: 16, boxShadow: '0 4px 20px rgba(0,0,0,0.03)', border: shopData.plan === 'none' ? '2px solid #f1c40f' : '1px solid #f1f5f9', display:'flex', flexDirection:'column' }}>
-                <h3 style={{ marginTop: 0, fontSize: 16, color: '#334155', display:'flex', alignItems:'center', gap:8, marginBottom:20 }}>
-                    💳 <span style={{fontWeight:'bold'}}>Planes</span>
-                    {shopData.plan === 'none' && <span style={{fontSize:10, background:'#f1c40f', color:'white', padding:'2px 8px', borderRadius:10}}>Requerido</span>}
-                </h3>
+                const insertData = { 
+                    owner_id: user.id, 
+                    email: userEmail, 
+                    nombre_negocio: 'Mi Negocio', 
+                    template: 'tienda', 
+                    plan: 'none', 
+                    subscription_status: 'none', 
+                    trial_start_date: new Date().toISOString() 
+                };
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 15, marginBottom: 20 }}>
-                    {/* BÁSICO */}
-                    <div onClick={() => setSelectedPlan('simple')} style={{ border: selectedPlan === 'simple' ? '2px solid #3b82f6' : '1px solid #e2e8f0', borderRadius: 12, padding: 15, position: 'relative', background: selectedPlan === 'simple' ? '#eff6ff' : 'white', cursor:'pointer', transition:'all 0.2s' }}>
-                        <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
-                            <div style={{ fontSize: 13, fontWeight: 'bold', color: '#334155' }}>Plan Básico</div>
-                            {selectedPlan === 'simple' && <div style={{fontSize:14, color:'#3b82f6'}}>●</div>}
-                        </div>
-                        <div style={{ fontSize: 18, fontWeight: '800', color: '#3b82f6', margin: '5px 0' }}>$15.200<span style={{fontSize:11, fontWeight:'normal', color:'#64748b'}}>/mes</span></div>
-                        <div style={{ fontSize: 10, background: '#dbeafe', color: '#1e40af', padding: '2px 6px', borderRadius: 4, display: 'inline-block', marginBottom: 10 }}>14 Días Gratis</div>
-                        <ul style={{ padding: 0, listStyle: 'none', fontSize: 11, color: '#64748b' }}><li>✅ 1 Plantilla Activa</li><li>🔒 Otras bloqueadas</li></ul>
-                        
-                        {selectedPlan === 'simple' && (
-                              <div style={{marginTop:10, borderTop:'1px dashed #bfdbfe', paddingTop:10}}>
-                                  <label style={{fontSize:10, fontWeight:'bold', display:'block', color:'#1e40af'}}>Elige tu plantilla:</label>
-                                  <select 
-                                      value={selectedTemplate} 
-                                      onChange={(e) => setSelectedTemplate(e.target.value)} 
-                                      disabled={isSelectorLocked || (shopData.plan === 'simple' && isActive && !shopData.changeCount)} 
-                                      style={{
-                                          width:'100%', padding:5, marginTop:5, fontSize:11, borderRadius:4, 
-                                          border:'1px solid #bfdbfe', 
-                                          opacity: isSelectorLocked ? 0.5 : 1,
-                                          background: isSelectorLocked ? '#e2e8f0' : 'white',
-                                          cursor: isSelectorLocked ? 'not-allowed' : 'pointer'
-                                      }}
-                                  >
-                                      <option value="" disabled>-- Seleccionar --</option>
-                                      <option value="tienda">Tienda</option>
-                                      <option value="catalogo">Catálogo</option>
-                                      <option value="menu">Menú</option>
-                                      <option value="personal">Personal</option>
-                                  </select>
-                                  {isSelectorLocked && <div style={{fontSize:10, color:'#dc2626', marginTop:3}}>🔒 Cambio bloqueado por {daysRemainingLock} días.</div>}
-                              </div>
-                          )}
-                    </div>
-                    {/* FULL */}
-                    <div onClick={() => { setSelectedPlan('full'); setSelectedTemplate(''); }} style={{ border: selectedPlan === 'full' ? '2px solid #eab308' : '1px solid #e2e8f0', borderRadius: 12, padding: 15, position: 'relative', background: selectedPlan === 'full' ? '#fffbeb' : 'white', cursor:'pointer', transition:'all 0.2s' }}>
-                        <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
-                            <div style={{ fontSize: 13, fontWeight: 'bold', color: '#334155' }}>Plan Full 👑</div>
-                            {selectedPlan === 'full' && <div style={{fontSize:14, color:'#eab308'}}>●</div>}
-                        </div>
-                        <div style={{ fontSize: 18, fontWeight: '800', color: '#d97706', margin: '5px 0' }}>$20.100<span style={{fontSize:11, fontWeight:'normal', color:'#64748b'}}>/mes</span></div>
-                        <div style={{ fontSize: 10, background: '#fef3c7', color: '#92400e', padding: '2px 6px', borderRadius: 4, display: 'inline-block', marginBottom: 10 }}>14 Días Gratis</div>
-                        <ul style={{ padding: 0, listStyle: 'none', fontSize: 11, color: '#64748b' }}><li>✅ Todo Ilimitado</li><li>🚀 Múltiples Links</li></ul>
-                    </div>
-                </div>
+                const { data: newShop, error } = await supabase.from('shops').insert([insertData]).select().single();
+                if (!error) shop = newShop;
+             }
+        }
 
-                <div style={{marginTop:'auto', paddingTop:15, borderTop:'1px dashed #e2e8f0'}}>
-                    <div style={{marginBottom:15, padding:10, background:'#f8fafc', borderRadius:8, border:'1px solid #e2e8f0'}}>
-                        {!appliedCoupon ? (
-                            <div style={{display:'flex', gap:5}}>
-                                <input type="text" placeholder="¿Tenés un cupón?" value={couponCode} onChange={(e) => setCouponCode(e.target.value)} style={{flex:1, padding:8, border:'1px solid #cbd5e1', borderRadius:6, fontSize:13, minWidth: 0}} />
-                                <button onClick={handleApplyCoupon} disabled={validatingCoupon || !couponCode} style={{background:'#334155', color:'white', border:'none', borderRadius:6, padding:'0 15px', cursor:'pointer', fontSize:12}}>{validatingCoupon ? '...' : 'Aplicar'}</button>
-                            </div>
-                        ) : (
-                            <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
-                                <div><span style={{color:'#16a34a', fontWeight:'bold', fontSize:13}}>✅ Cupón {appliedCoupon.code}</span><div style={{fontSize:11, color:'#64748b'}}>{appliedCoupon.percent}% OFF aplicado</div></div>
-                                <button onClick={() => { setAppliedCoupon(null); setCouponCode(''); }} style={{background:'transparent', border:'none', color:'#ef4444', cursor:'pointer', fontSize:11}}>Quitar</button>
-                            </div>
-                        )}
-                    </div>
+        if (shop) {
+          // Admin
+          if (userEmail === ADMIN_EMAIL) { shop.plan = 'full'; shop.subscription_status = 'active'; }
+          
+          // Sync Básico
+          if (!shop.email || shop.email !== userEmail) supabase.from('shops').update({ email: userEmail }).eq('id', shop.id).then();
 
-                    <p style={{margin:'0 0 10px 0', fontSize:11, color:'#64748b', textAlign:'center'}}>
-                        {isActive ? 'Tu próximo cobro será automático.' : 'Los primeros 14 días son GRATIS.'}
-                    </p>
+          // --- PRODUCTOS ---
+          const currentTemplate = shop.template || 'tienda'; // Fallback por seguridad
+          const tipoNecesario = getTipo(currentTemplate);
+          
+          let items: any[] = [];
+          
+          // Intentar cargar de DB
+          let { data: dbItems } = await supabase.from('products').select('*').eq('shop_id', shop.id).eq('tipo', tipoNecesario).order('created_at', { ascending: true });
+          
+          if (dbItems && dbItems.length > 0) {
+              items = dbItems;
+          } else {
+             // Si no hay en DB, insertamos los defaults
+             console.log("Productos vacíos, insertando defaults...");
+             const defaults = getDefaults(currentTemplate);
+             const toInsert = defaults.map(p => ({ ...p, shop_id: shop.id, imagen_url: (p as any).imagen_url }));
+             
+             const { data: inserted } = await supabase.from('products').insert(toInsert).select();
+             
+             if (inserted && inserted.length > 0) {
+                 items = inserted;
+             } else {
+                 // FALLBACK DE ÚLTIMO RECURSO: Si falla la DB, usamos los locales para que no se vea vacío
+                 console.warn("Fallo inserción en DB, usando fallback local.");
+                 items = defaults.map((p, index) => ({ ...p, id: `local-${index}`, shop_id: shop.id }));
+             }
+          }
 
-                    {/* BOTONES ACCIÓN */}
-                    {(!isActive && !isExpired) && (
-                        <button onClick={handlePlanActivation} disabled={loadingPlan || (selectedPlan === 'simple' && !selectedTemplate)} style={{width: '100%', padding: 12, borderRadius: 8, border: 'none', marginBottom: 10, background: (loadingPlan || (selectedPlan === 'simple' && !selectedTemplate)) ? '#ccc' : '#2ecc71', color: 'white', fontWeight: 'bold', fontSize: 14, cursor: 'pointer', boxShadow: '0 4px 10px rgba(46, 204, 113, 0.3)'}}>
-                            {loadingPlan ? 'Procesando...' : (shopData.plan !== 'none' ? '🔄 Actualizar Plan (Sin cargo)' : '✅ Activar Prueba Gratis (14 Días)')}
-                        </button>
-                    )}
+          // Mapeo de datos
+          const currentSlugs: any = { tienda: shop.slug_tienda || '', catalogo: shop.slug_catalogo || '', menu: shop.slug_menu || '', personal: shop.slug_personal || '' };
+          const currentLogos: any = { tienda: shop.logo_tienda || '', catalogo: shop.logo_catalogo || '', menu: shop.logo_menu || '', personal: shop.logo_personal || '' };
+          const currentNombres: any = { tienda: shop.nombre_tienda || shop.nombre_negocio, catalogo: shop.nombre_catalogo || shop.nombre_negocio, menu: shop.nombre_menu || shop.nombre_negocio, personal: shop.nombre_personal || shop.nombre_negocio };
+          const currentDesc: any = { tienda: shop.descripcion_tienda || shop.descripcion, catalogo: shop.descripcion_catalogo || shop.descripcion, menu: shop.descripcion_menu || shop.descripcion, personal: shop.descripcion_personal || shop.descripcion };
+          const currentWhatsapps: any = { tienda: shop.whatsapp_tienda || shop.whatsapp, catalogo: shop.whatsapp_catalogo || shop.whatsapp, menu: shop.whatsapp_menu || shop.whatsapp, personal: shop.whatsapp_personal || '' };
 
-                    <button onClick={handleSubscribe} disabled={loadingPago} style={{width: '100%', padding: 12, borderRadius: 8, border: 'none', background: '#5a99fa', color: 'white', fontWeight: 'bold', fontSize: 14, cursor: loadingPago ? 'not-allowed' : 'pointer', opacity: loadingPago ? 0.7 : 1, display:'flex', alignItems:'center', justifyContent:'center', gap:8, boxShadow: '0 4px 10px rgba(90, 153, 250, 0.3)'}}>
-                         {loadingPago ? 'Cargando...' : (
-                             <span>
-                                 {isActive ? `💎 Suscrito al ${currentPlanName}` : `💳 Suscribirse por ${appliedCoupon ? `$${getPrice().toLocaleString()}` : `$${(selectedPlan==='full'?PRECIO_FULL:PRECIO_SIMPLE).toLocaleString()}`}`}
-                             </span>
-                         )}
-                    </button>
-                </div>
-            </div>
-            
-            {/* 3. PERFIL */}
-            <div style={{ background: 'white', padding: 30, borderRadius: 16, boxShadow: '0 4px 20px rgba(0,0,0,0.03)', border:'1px solid #f1f5f9' }}>
-                <h3 style={{ marginTop: 0, fontSize: 16, color: '#334155', display:'flex', alignItems:'center', gap:8, marginBottom:25 }}>👤 <span style={{fontWeight:'bold'}}>Mi Perfil</span></h3>
-                <div style={{display:'flex', gap:10, marginBottom:15}}>
-                    <div style={{flex:1}}><label style={{display:'block', fontSize:11, fontWeight:'bold', color:'#64748b', marginBottom:5}}>Nombre</label><input type="text" value={shopData.nombreDueno || ''} onChange={(e) => updateProfile({nombreDueno: e.target.value})} style={{width:'100%', padding:10, border:'1px solid #cbd5e1', borderRadius:6, fontSize:13}} /></div>
-                    <div style={{flex:1}}><label style={{display:'block', fontSize:11, fontWeight:'bold', color:'#64748b', marginBottom:5}}>Apellido</label><input type="text" value={shopData.apellidoDueno || ''} onChange={(e) => updateProfile({apellidoDueno: e.target.value})} style={{width:'100%', padding:10, border:'1px solid #cbd5e1', borderRadius:6, fontSize:13}} /></div>
-                </div>
-                <div style={{marginBottom:15}}><label style={{display:'block', fontSize:11, fontWeight:'bold', color:'#64748b', marginBottom:5}}>Teléfono / WhatsApp</label><input type="text" value={shopData.telefonoDueno || ''} onChange={(e) => updateProfile({telefonoDueno: e.target.value})} style={{width:'100%', padding:10, border:'1px solid #cbd5e1', borderRadius:6, fontSize:13}} /></div>
-                <button onClick={handleSaveName} style={{marginBottom:20, background:'#3b82f6', color:'white', border:'none', borderRadius:4, padding:'8px 15px', fontSize:12, cursor:'pointer'}}>Guardar Datos</button>
-                <div style={{marginBottom:20}}><label style={{display:'block', fontSize:11, fontWeight:'bold', color:'#64748b', marginBottom:5}}>Email (No editable)</label><input type="text" value={shopData.email} disabled style={{width:'100%', padding:10, border:'none', borderRadius:6, background:'#f1f5f9', color:'#94a3b8', fontSize:13}} /></div>
-                <hr style={{border:'none', borderTop:'1px solid #f1f5f9', margin:'20px 0'}} />
-                <div style={{ display: 'flex', gap: 10 }}><input type="password" placeholder="Nueva..." value={newPass} onChange={e => setNewPass(e.target.value)} style={{ flex:1, padding: '10px', border: '1px solid #cbd5e1', borderRadius: 6, fontSize:13 }} /><button onClick={handlePassChange} disabled={loadingPass} style={{ background: '#3b82f6', color: 'white', border: 'none', borderRadius: 6, padding:'0 15px', cursor: 'pointer' }}>OK</button></div>
-            </div>
+          setShopData({
+            id: shop.id, 
+            email: userEmail, 
+            nombreAdmin: (userEmail.split('@')[0]), 
+            template: currentTemplate, 
+            slug: currentSlugs[currentTemplate] || '', 
+            slugs: currentSlugs,
+            logos: currentLogos, 
+            logo: currentLogos[currentTemplate] || '',
+            nombreNegocio: currentNombres[currentTemplate] || '', 
+            descripcion: currentDesc[currentTemplate] || '',
+            nombres: currentNombres, 
+            descripciones: currentDesc, 
+            whatsapp: currentWhatsapps[currentTemplate] || '', 
+            whatsapps: currentWhatsapps,
+            plantillaVisual: shop.plantilla_visual || 'Minimal', 
+            personalTheme: shop.personal_theme || 'glass', 
+            plan: shop.plan || 'none', 
+            nombreDueno: shop.nombre_dueno || '', 
+            apellidoDueno: shop.apellido_dueno || '', 
+            telefonoDueno: shop.telefono_dueno || '',
+            templateLocked: shop.template_locked || null, 
+            lastTemplateChange: shop.last_template_change, 
+            changeCount: shop.change_count || 0,
+            productos: items.map(p => ({ id: p.id, titulo: p.titulo, descripcion: p.descripcion, precio: p.precio, galeria: p.galeria || [], url: p.url_destino, shop_id: p.shop_id, tipo: p.tipo, imagen: p.imagen_url })),
+            subscription_status: shop.subscription_status || 'none', 
+            trial_start_date: shop.trial_start_date, 
+            mp_subscription_id: shop.mp_subscription_id, 
+            plan_price: shop.plan_price
+          });
+        }
+    } catch (error) { 
+        console.error("Error en Context:", error); 
+    } finally { 
+        setLoading(false); // SIEMPRE apagar loading
+    }
+  };
 
-            {/* 4. CANCELAR */}
-            {isActive && (
-                <div style={{ background: 'white', padding: 30, borderRadius: 16, boxShadow: '0 4px 20px rgba(0,0,0,0.03)', border:'1px solid #f1f5f9' }}>
-                    <h3 style={{ marginTop: 0, fontSize: 16, color: '#334155', display:'flex', alignItems:'center', gap:8, marginBottom:20 }}>⛔ <span style={{fontWeight:'bold'}}>Zona de Peligro</span></h3>
-                    <p style={{fontSize:12, color:'#64748b', marginBottom:15}}>Si deseas cambiar tu tarjeta, debes hacerlo desde tu cuenta de Mercado Pago o cancelar aquí y volver a suscribirte.</p>
-                    <button onClick={handleCancelSubscription} disabled={loadingCancel} style={{width: '100%', padding: 12, borderRadius: 8, border: '1px solid #fca5a5', background: '#fef2f2', color: '#dc2626', fontWeight: 'bold', fontSize: 13, cursor: loadingCancel ? 'not-allowed' : 'pointer'}}>{loadingCancel ? 'Cancelando...' : 'Cancelar Suscripción'}</button>
-                </div>
-            )}
-        </div>
-      </main>
-  );
-}
+  useEffect(() => { 
+      // Safety Timer: Si en 3 segundos no carga, apagar loading forzosamente
+      const safetyTimer = setTimeout(() => setLoading(false), 3000);
 
-export default function ConfiguracionPage() {
+      const initLoad = async () => {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session?.user) await loadShopData(session.user);
+          else setLoading(false);
+      };
+      initLoad();
+
+      const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+          if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
+              if (session?.user) {
+                  setLoading(true);
+                  await loadShopData(session.user);
+              }
+          } else if (event === 'SIGNED_OUT') {
+              setShopData(emptyState);
+              setLoading(false);
+          }
+      });
+
+      return () => { 
+          subscription.unsubscribe(); 
+          clearTimeout(safetyTimer);
+      };
+  }, []);
+
+  const canEdit = () => {
+      if (shopData.email === ADMIN_EMAIL) return true; 
+      if (shopData.subscription_status === 'active') return true;
+      if (shopData.subscription_status === 'trial' && shopData.trial_start_date) {
+         const days = Math.ceil(Math.abs(new Date().getTime() - new Date(shopData.trial_start_date).getTime()) / (1000 * 60 * 60 * 24));
+         return days <= 14;
+      }
+      return false;
+  };
+
+  const activateTrial = async (selectedPlan: 'simple' | 'full', selectedTemplate?: string) => {
+      if (!shopData.id) return;
+      const now = new Date().toISOString();
+      let nextCount = shopData.changeCount || 0;
+      
+      if (shopData.plan === 'simple' && selectedPlan === 'simple' && selectedTemplate && selectedTemplate !== shopData.templateLocked) {
+          if (nextCount >= 1 && shopData.lastTemplateChange) {
+             const lastChange = new Date(shopData.lastTemplateChange);
+             const diffTime = Math.abs(new Date().getTime() - lastChange.getTime());
+             const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+             if (diffDays < 30) {
+                 alert(`🔒 CAMBIO BLOQUEADO\n\nYa usaste tu cambio permitido. Espera ${30 - diffDays} días.`);
+                 return false;
+             }
+             nextCount = 0; 
+          }
+          nextCount += 1;
+      }
+
+      if (shopData.plan !== 'simple' && selectedPlan === 'simple') nextCount = 0;
+
+      const updates: any = { plan: selectedPlan, subscription_status: 'trial', trial_start_date: now };
+      
+      if (selectedPlan === 'simple' && selectedTemplate) { 
+          updates.template = selectedTemplate; 
+          updates.template_locked = selectedTemplate;
+          updates.last_template_change = now;
+          updates.change_count = nextCount;
+      } else if (selectedPlan === 'full') { 
+          updates.template_locked = null; 
+      }
+      
+      const { error } = await supabase.from('shops').update(updates).eq('id', shopData.id);
+      
+      if (!error) {
+          setShopData(prev => ({ 
+              ...prev, 
+              plan: selectedPlan, subscription_status: 'trial', trial_start_date: now, 
+              template: (selectedPlan === 'simple' && selectedTemplate) ? selectedTemplate : prev.template, 
+              templateLocked: (selectedPlan === 'simple' && selectedTemplate) ? selectedTemplate : null,
+              lastTemplateChange: (selectedPlan === 'simple') ? now : prev.lastTemplateChange,
+              changeCount: (selectedPlan === 'simple') ? nextCount : prev.changeCount
+          }));
+
+          if (selectedPlan === 'simple' && selectedTemplate && selectedTemplate !== shopData.template) {
+              await changeTemplate(selectedTemplate); 
+          }
+          return true;
+      }
+      return false;
+  };
+
+  const changeTemplate = async (newTemplate: string): Promise<{success: boolean, message?: string}> => {
+    if (shopData.template === newTemplate) return { success: true };
+
+    // Lógica bloqueo (copiada de arriba para consistencia)
+    if (shopData.plan === 'simple') {
+        const currentCount = shopData.changeCount || 0;
+        if (currentCount >= 1 && shopData.lastTemplateChange) {
+            const lastChange = new Date(shopData.lastTemplateChange);
+            const diffTime = Math.abs(new Date().getTime() - lastChange.getTime());
+            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
+            if (diffDays < 30) return { success: false, message: `🔒 Bloqueado: Espera ${30 - diffDays} días.` };
+        }
+    }
+    
+    // UI Optimista
+    setShopData(prev => ({ ...prev, template: newTemplate, products: [] })); // Limpia productos visualmente mientras carga
+    
+    if (shopData.id) {
+       const now = new Date().toISOString();
+       const updates: any = { template: newTemplate };
+       let nextCount = shopData.changeCount || 0;
+
+       if (shopData.plan === 'simple') {
+           nextCount += 1;
+           updates.template_locked = newTemplate;
+           updates.last_template_change = now;
+           updates.change_count = nextCount;
+           setShopData(prev => ({ ...prev, templateLocked: newTemplate, lastTemplateChange: now, changeCount: nextCount }));
+       }
+
+       await supabase.from('shops').update(updates).eq('id', shopData.id);
+
+       const tipoNecesario = getTipo(newTemplate);
+       let items: any[] = [];
+       let { data: dbItems } = await supabase.from('products').select('*').eq('shop_id', shopData.id).eq('tipo', tipoNecesario).order('created_at', { ascending: true });
+       
+       if (dbItems && dbItems.length > 0) {
+           items = dbItems;
+       } else {
+          const defaults = getDefaults(newTemplate);
+          const toInsert = defaults.map(p => ({ ...p, shop_id: shopData.id, imagen_url: (p as any).imagen_url }));
+          const { data: inserted } = await supabase.from('products').insert(toInsert).select();
+          if (inserted) items = inserted;
+          else items = defaults.map((p, i) => ({...p, id: `local-${i}`, shop_id: shopData.id})); // Fallback local
+       }
+       setShopData(prev => ({ ...prev, template: newTemplate, productos: items.map(p => ({ id: p.id, titulo: p.titulo, descripcion: p.descripcion, precio: p.precio, galeria: p.galeria || [], url: p.url_destino, shop_id: p.shop_id, tipo: p.tipo, imagen: p.imagen_url })) }));
+    }
+    return { success: true };
+  };
+
+  // Funciones auxiliares sin cambios mayores
+  const updateConfig = async (newData: any) => { if (!canEdit()) return; setShopData((prev) => { const updatedSlugs = { ...prev.slugs }; if (newData.slug !== undefined) updatedSlugs[prev.template] = newData.slug; return { ...prev, ...newData, slugs: updatedSlugs }; }); if (shopData.id) { const dbData: any = { plantilla_visual: newData.plantillaVisual, personal_theme: newData.personalTheme }; if (newData.nombreNegocio !== undefined) { if(shopData.template === 'tienda') dbData.nombre_tienda = newData.nombreNegocio; if(shopData.template === 'catalogo') dbData.nombre_catalogo = newData.nombreNegocio; if(shopData.template === 'menu') dbData.nombre_menu = newData.nombreNegocio; if(shopData.template === 'personal') dbData.nombre_personal = newData.nombreNegocio; } if (newData.descripcion !== undefined) { if(shopData.template === 'tienda') dbData.descripcion_tienda = newData.descripcion; if(shopData.template === 'catalogo') dbData.descripcion_catalogo = newData.descripcion; if(shopData.template === 'menu') dbData.descripcion_menu = newData.descripcion; if(shopData.template === 'personal') dbData.descripcion_personal = newData.descripcion; } if (newData.whatsapp !== undefined) { if(shopData.template === 'tienda') dbData.whatsapp_tienda = newData.whatsapp; if(shopData.template === 'catalogo') dbData.whatsapp_catalogo = newData.whatsapp; if(shopData.template === 'menu') dbData.whatsapp_menu = newData.whatsapp; if(shopData.template === 'personal') dbData.whatsapp_personal = newData.whatsapp; } if (newData.logo !== undefined) { dbData.logo_url = newData.logo; if(shopData.template === 'tienda') dbData.logo_tienda = newData.logo; if(shopData.template === 'catalogo') dbData.logo_catalogo = newData.logo; if(shopData.template === 'menu') dbData.logo_menu = newData.logo; if(shopData.template === 'personal') dbData.logo_personal = newData.logo; } if (newData.slug !== undefined) { if(shopData.template === 'tienda') dbData.slug_tienda = newData.slug; if(shopData.template === 'catalogo') dbData.slug_catalogo = newData.slug; if(shopData.template === 'menu') dbData.slug_menu = newData.slug; if(shopData.template === 'personal') dbData.slug_personal = newData.slug; } await supabase.from('shops').update(dbData).eq('id', shopData.id); } };
+  const updateTemplateSlug = async (tmpl: string, newSlug: string) => { if (!canEdit() || !shopData.id) return; setShopData((prev) => { const updatedSlugs = { ...prev.slugs, [tmpl]: newSlug }; return { ...prev, slugs: updatedSlugs, slug: (prev.template === tmpl) ? newSlug : prev.slug }; }); const dbData: any = {}; if(tmpl === 'tienda') dbData.slug_tienda = newSlug; if(tmpl === 'catalogo') dbData.slug_catalogo = newSlug; if(tmpl === 'menu') dbData.slug_menu = newSlug; if(tmpl === 'personal') dbData.slug_personal = newSlug; await supabase.from('shops').update(dbData).eq('id', shopData.id); };
+  const resetTemplate = async (tmplToReset: string) => { if(!shopData.id) return; setShopData(prev => ({ ...prev, slugs: { ...prev.slugs, [tmplToReset]: '' } })); const dbData: any = {}; if(tmplToReset === 'tienda') { dbData.slug_tienda = null; dbData.logo_tienda = null; dbData.nombre_tienda = null; dbData.descripcion_tienda = null; dbData.whatsapp_tienda = null; } if(tmplToReset === 'catalogo') { dbData.slug_catalogo = null; dbData.logo_catalogo = null; dbData.nombre_catalogo = null; dbData.descripcion_catalogo = null; dbData.whatsapp_catalogo = null; } if(tmplToReset === 'menu') { dbData.slug_menu = null; dbData.logo_menu = null; dbData.nombre_menu = null; dbData.descripcion_menu = null; dbData.whatsapp_menu = null; } if(tmplToReset === 'personal') { dbData.slug_personal = null; dbData.logo_personal = null; dbData.nombre_personal = null; dbData.descripcion_personal = null; dbData.whatsapp_personal = null; } await supabase.from('shops').update(dbData).eq('id', shopData.id); const tipo = getTipo(tmplToReset); await supabase.from('products').delete().eq('shop_id', shopData.id).eq('tipo', tipo); if (shopData.template === tmplToReset) changeTemplate(tmplToReset); };
+  const lockTemplate = async (selectedTemplate: string) => { if(!shopData.id) return; if(confirm(`¿Confirmar "${selectedTemplate.toUpperCase()}" como única plantilla?`)) { const now = new Date().toISOString(); await supabase.from('shops').update({ template: selectedTemplate, template_locked: selectedTemplate, last_template_change: now }).eq('id', shopData.id); setShopData(prev => ({ ...prev, template: selectedTemplate, templateLocked: selectedTemplate, lastTemplateChange: now })); return true; } return false; };
+  const updateProfile = async (data: any) => { setShopData(prev => ({ ...prev, ...data })); if(shopData.id) { const dbData: any = {}; if(data.nombreDueno) dbData.nombre_dueno = data.nombreDueno; if(data.apellidoDueno) dbData.apellido_dueno = data.apellidoDueno; if(data.telefonoDueno) dbData.telefono_dueno = data.telefonoDueno; if(shopData.email) dbData.email = shopData.email; if(data.plan) { dbData.plan = data.plan; if(data.plan === 'full') dbData.template_locked = null; } await supabase.from('shops').update(dbData).eq('id', shopData.id); } };
+  const changePassword = async (p: string) => (await supabase.auth.updateUser({ password: p })).error;
+  const manualSave = async () => true; 
+  const addProduct = async (prod: Product) => { if (!canEdit() || !shopData.id) return; const tipoActual = getTipo(shopData.template); const { data } = await supabase.from('products').insert([{ shop_id: shopData.id, titulo: prod.titulo, descripcion: prod.descripcion, precio: prod.precio, galeria: prod.galeria || [], url_destino: prod.url, tipo: tipoActual, imagen_url: prod.imagen }]).select().single(); if (data) { setShopData((prev:any) => ({ ...prev, productos: [...prev.productos, { id: data.id, titulo: data.titulo, descripcion: data.descripcion, precio: data.precio, galeria: data.galeria || [], url: data.url_destino, shop_id: data.shop_id, tipo: data.tipo, imagen: data.imagen_url }] })); } };
+  const updateProduct = async (id: string, data: Partial<Product>) => { if (!canEdit()) return; setShopData((prev:any) => ({ ...prev, productos: prev.productos.map((p:any) => (p.id === id ? { ...p, ...data } : p)) })); const dbData: any = {}; if (data.titulo !== undefined) dbData.titulo = data.titulo; if (data.descripcion !== undefined) dbData.descripcion = data.descripcion; if (data.precio !== undefined) dbData.precio = data.precio; if (data.url !== undefined) dbData.url_destino = data.url; if (data.imagen !== undefined) dbData.imagen_url = data.imagen; if (data.galeria !== undefined) dbData.galeria = data.galeria; await supabase.from('products').update(dbData).eq('id', id); };
+  const deleteProduct = async (id: string) => { if (!canEdit()) return; setShopData((prev:any) => ({ ...prev, productos: prev.productos.filter((p:any) => p.id !== id) })); await supabase.from('products').delete().eq('id', id); };
+
   return (
-    <div className="contenedor-layout" style={{display:'flex'}}>
-      <Sidebar activeTab="configuracion" />
-      <Suspense fallback={<div style={{padding:20}}>Cargando configuración...</div>}>
-         <ConfiguracionContent />
-      </Suspense>
-    </div>
+    <ShopContext.Provider value={{ shopData, loading, updateConfig, changeTemplate, addProduct, updateProduct, deleteProduct, updateProfile, lockTemplate, canEdit, changePassword, manualSave, resetTemplate, updateTemplateSlug, activateTrial }}>
+      {children}
+    </ShopContext.Provider>
   );
-}
+};
+export const useShop = () => useContext(ShopContext);
