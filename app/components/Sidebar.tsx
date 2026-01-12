@@ -136,19 +136,21 @@ export default function Sidebar({ activeTab = 'personalizar' }: SidebarProps) {
   };
 
   // --- LÓGICA DE SELECCIÓN CON POP-UP Y RESTRICCIÓN ---
+ // --- LÓGICA DE SELECCIÓN DE PLANTILLA ---
   const selectTemplate = async (val: string) => { 
       if (shopData.template === val) return;
 
-      // 1. POP-UP DE ADVERTENCIA PARA PLAN BÁSICO (Primera vez o contador 0)
-      if (shopData.plan === 'simple' && (!shopData.changeCount || shopData.changeCount === 0)) {
-          if (!confirm("⚠️ ATENCIÓN: Estás a punto de cambiar tu plantilla.\n\nEn el Plan Básico, tienes 1 cambio permitido ahora. Si confirmas este cambio, la opción de cambiar plantilla se bloqueará por 30 días.\n\n¿Estás seguro de que quieres cambiar a esta plantilla?")) {
-              return; 
+      // 🔒 BLOQUEO PARA PLAN BÁSICO EN SIDEBAR
+      if (shopData.plan === 'simple') {
+          // Si intenta tocar una plantilla que no es la activa:
+          if (confirm(`⚠️ Plan Básico: La gestión de plantillas se hace desde Configuración.\n\nTienes 1 cambio de plantilla permitido al mes.\n\n¿Quieres ir a Configuración ahora para cambiarla?`)) {
+              router.push('/configuracion');
           }
+          return; // Cortamos aquí, no dejamos que el sidebar cambie nada
       }
 
-      // 2. LLAMADA AL CONTEXTO
+      // Si es Plan Full, dejamos cambiar normal
       const result = await changeTemplate(val);
-      
       if (!result.success) {
           alert(result.message);
       } else {

@@ -123,36 +123,69 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
       return false;
   };
 
-  // ✅ CORRECCIÓN EN ACTIVATE TRIAL (No resetear si ya es Basic)
-  const activateTrial = async (selectedPlan: 'simple' | 'full', selectedTemplate?: string) => {
+const activateTrial = async (selectedPlan: 'simple' | 'full', selectedTemplate?: string) => {
       if (!shopData.id) return;
       const now = new Date().toISOString();
+      
+      // LOGICA DE BLOQUEO DE CAMBIO EN PLAN BÁSICO
+      let nextCount = shopData.changeCount || 0;
+      
+      // Si ya estoy en simple y quiero actualizar a simple (cambio de plantilla)
+      if (shopData.plan === 'simple' && selectedPlan === 'simple' && selectedTemplate && selectedTemplate !== shopData.templateLocked) {
+          
+          // Verificamos si ya gastó su cambio
+          if (nextCount >= 1 && shopData.lastTemplateChange) {
+             const lastChange = new Date(shopData.lastTemplateChange);
+             const diffTime = Math.abs(new Date().getTime() - lastChange.getTime());
+             const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+             
+             if (diffDays < 30) {
+                 alert(`🔒 CAMBIO BLOQUEADO\n\nYa usaste tu cambio permitido este mes. Podrás elegir otra plantilla en ${30 - diffDays} días.`);
+                 return false; // Cancelamos la operación
+             }
+             // Si pasaron 30 días, reseteamos el contador para este nuevo ciclo
+             nextCount = 0; 
+          }
+          
+          // Si pasa, sumamos 1 al contador
+          nextCount += 1;
+      }
+
+      // Si cambiamos DE otro plan A simple, reseteamos a 0 (es un inicio fresco)
+      if (shopData.plan !== 'simple' && selectedPlan === 'simple') {
+          nextCount = 0;
+      }
+
       const updates: any = { plan: selectedPlan, subscription_status: 'trial', trial_start_date: now };
       
       if (selectedPlan === 'simple' && selectedTemplate) { 
           updates.template = selectedTemplate; 
           updates.template_locked = selectedTemplate;
           updates.last_template_change = now;
-          
-          // 🛑 SOLUCIÓN: Solo reseteamos el contador si NO ESTABA en Básico antes
-          if (shopData.plan !== 'simple') {
-              updates.change_count = 0; 
-          }
-          // Si ya estaba en simple, NO tocamos change_count, mantenemos el historial.
+          updates.change_count = nextCount; // Guardamos el nuevo contador
       } else if (selectedPlan === 'full') { 
           updates.template_locked = null; 
       }
       
       const { error } = await supabase.from('shops').update(updates).eq('id', shopData.id);
+      
       if (!error) {
           setShopData(prev => ({ 
-              ...prev, plan: selectedPlan, subscription_status: 'trial', trial_start_date: now, 
+              ...prev, 
+              plan: selectedPlan, 
+              subscription_status: 'trial', 
+              trial_start_date: now, 
               template: (selectedPlan === 'simple' && selectedTemplate) ? selectedTemplate : prev.template, 
               templateLocked: (selectedPlan === 'simple' && selectedTemplate) ? selectedTemplate : null,
               lastTemplateChange: (selectedPlan === 'simple') ? now : prev.lastTemplateChange,
-              // Actualizamos localmente el contador solo si cambió de plan
-              changeCount: (selectedPlan === 'simple' && prev.plan !== 'simple') ? 0 : prev.changeCount
+              changeCount: (selectedPlan === 'simple') ? nextCount : prev.changeCount // Actualizamos estado local
           }));
+
+          // Si cambió de plantilla, necesitamos recargar los productos de esa plantilla visualmente
+          if (selectedPlan === 'simple' && selectedTemplate && selectedTemplate !== shopData.template) {
+              await changeTemplate(selectedTemplate); 
+          }
+
           return true;
       }
       return false;
