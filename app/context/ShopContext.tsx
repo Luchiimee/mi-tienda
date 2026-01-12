@@ -51,19 +51,10 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
   const getTipo = (tmpl: string) => (tmpl === 'menu' ? 'gastronomia' : tmpl === 'personal' ? 'enlace' : tmpl === 'catalogo' ? 'catalogo' : 'producto');
   const getDefaults = (tmpl: string) => (tmpl === 'menu' ? DEFAULT_MENU : tmpl === 'personal' ? DEFAULT_LINKS : tmpl === 'catalogo' ? DEFAULT_CATALOGO : DEFAULT_TIENDA);
 
-  // Modificado para aceptar 'user' opcionalmente y evitar esperas innecesarias
-  const loadShopData = async (userParam?: any) => {
+  const loadShopData = async () => {
     try {
-        let user = userParam;
-        
-        // Si no nos pasan el usuario, intentamos obtenerlo (fallback)
-        if (!user) {
-            const { data: { user: fetchedUser } } = await supabase.auth.getSession().then(res => res.data.session ? { data: { user: res.data.session.user } } : { data: { user: null } });
-            user = fetchedUser;
-        }
-
+        const { data: { user } } = await supabase.auth.getSession().then(res => res.data.session ? { data: { user: res.data.session.user } } : { data: { user: null } });
         if (!user || !user.email) { setLoading(false); return; }
-        
         const userEmail = user.email.toLowerCase();
         let { data: shop } = await supabase.from('shops').select('*').eq('owner_id', user.id).maybeSingle();
 
@@ -120,37 +111,7 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
     } catch (error) { console.error("Error cargando tienda:", error); } finally { setLoading(false); }
   };
 
-  // ✅ SOLUCIÓN AL PROBLEMA DE INCOGNITO / CARGA
-  // Escuchamos el estado de autenticación. Si el usuario entra, cargamos.
-  useEffect(() => { 
-      // 1. Carga inicial rápida
-      const initLoad = async () => {
-          const { data: { session } } = await supabase.auth.getSession();
-          if (session?.user) {
-              await loadShopData(session.user);
-          } else {
-              setLoading(false);
-          }
-      };
-      initLoad();
-
-      // 2. Escucha activa (Login/Logout/Refresh)
-      const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-          if (event === 'SIGNED_IN' || (event === 'INITIAL_SESSION' && session)) {
-              if (session?.user) {
-                  setLoading(true);
-                  await loadShopData(session.user);
-              }
-          } else if (event === 'SIGNED_OUT') {
-              setShopData(emptyState);
-              setLoading(false);
-          }
-      });
-
-      return () => {
-          subscription.unsubscribe();
-      };
-  }, []);
+  useEffect(() => { loadShopData(); }, []);
 
   const canEdit = () => {
       if (shopData.email === ADMIN_EMAIL) return true; 
@@ -162,6 +123,7 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
       return false;
   };
 
+  // ✅ CORRECCIÓN EN ACTIVATE TRIAL (No resetear si ya es Basic)
   const activateTrial = async (selectedPlan: 'simple' | 'full', selectedTemplate?: string) => {
       if (!shopData.id) return;
       const now = new Date().toISOString();
@@ -171,9 +133,12 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
           updates.template = selectedTemplate; 
           updates.template_locked = selectedTemplate;
           updates.last_template_change = now;
+          
+          // 🛑 SOLUCIÓN: Solo reseteamos el contador si NO ESTABA en Básico antes
           if (shopData.plan !== 'simple') {
               updates.change_count = 0; 
           }
+          // Si ya estaba en simple, NO tocamos change_count, mantenemos el historial.
       } else if (selectedPlan === 'full') { 
           updates.template_locked = null; 
       }
@@ -185,6 +150,7 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
               template: (selectedPlan === 'simple' && selectedTemplate) ? selectedTemplate : prev.template, 
               templateLocked: (selectedPlan === 'simple' && selectedTemplate) ? selectedTemplate : null,
               lastTemplateChange: (selectedPlan === 'simple') ? now : prev.lastTemplateChange,
+              // Actualizamos localmente el contador solo si cambió de plan
               changeCount: (selectedPlan === 'simple' && prev.plan !== 'simple') ? 0 : prev.changeCount
           }));
           return true;
@@ -209,6 +175,7 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
         }
     }
     
+    // UI Update inmediata
     setShopData(prev => ({ 
         ...prev, 
         template: newTemplate, 
