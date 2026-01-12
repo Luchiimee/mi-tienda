@@ -8,8 +8,7 @@ import Sidebar from '../components/Sidebar';
 import { DOMAIN_URL } from '@/lib/constants';
 
 function ConfiguracionContent() {
-  // 1. TRAEMOS 'loading' DEL CONTEXTO
-  const { shopData, loading, updateProfile, changePassword, updateTemplateSlug, resetTemplate, activateTrial } = useShop();
+  const { shopData, updateProfile, changePassword, updateTemplateSlug, resetTemplate, activateTrial } = useShop();
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -25,24 +24,25 @@ function ConfiguracionContent() {
   const [appliedCoupon, setAppliedCoupon] = useState<{code: string, percent: number} | null>(null);
   const [validatingCoupon, setValidatingCoupon] = useState(false);
 
-  // 2. INICIALIZACIÓN INTELIGENTE: Si ya sabemos el plan, lo usamos. Si no, esperamos.
-  const [selectedPlan, setSelectedPlan] = useState<'simple' | 'full'>(shopData.plan === 'simple' ? 'simple' : 'full');
-  const [selectedTemplate, setSelectedTemplate] = useState<string>(shopData.templateLocked || '');
+  const [selectedPlan, setSelectedPlan] = useState<'simple' | 'full'>('full');
+  const [selectedTemplate, setSelectedTemplate] = useState<string>('');
 
   const PRECIO_SIMPLE = 15200;
   const PRECIO_FULL = 20100;
 
-  // DEFINIMOS ESTADOS
+  // 1. DEFINIMOS ESTADOS (LÓGICA CORREGIDA)
   const isTrial = shopData.subscription_status === 'trial';
   const isActive = shopData.subscription_status === 'active';
   const isNone = shopData.subscription_status === 'none'; 
+  
+  // 🛠️ CORRECCIÓN: Si es 'none', NO está expirado todavía.
   const isExpired = shopData.subscription_status === 'past_due' || (!isActive && !isTrial && !isNone);
   
   const trialStart = new Date(shopData.trial_start_date || shopData.created_at || new Date());
   const diffDays = Math.ceil(Math.abs(new Date().getTime() - trialStart.getTime()) / (1000 * 60 * 60 * 24)); 
   const daysLeft = Math.max(0, 14 - diffDays);
 
-  // CÁLCULO DE BLOQUEO
+  // 2. CÁLCULO DE BLOQUEO
   let daysRemainingLock = 0;
   if (shopData.plan === 'simple' && shopData.changeCount && shopData.changeCount >= 1 && shopData.lastTemplateChange) {
       const lastChange = new Date(shopData.lastTemplateChange);
@@ -62,12 +62,11 @@ function ConfiguracionContent() {
 
   useEffect(() => { setEditingSlugs(shopData.slugs); }, [shopData.slugs]);
   
-  // Sincronizar selección visual con el plan real cuando cargan los datos
   useEffect(() => {
       if (shopData.plan === 'simple') {
           setSelectedPlan('simple');
           if(shopData.templateLocked) setSelectedTemplate(shopData.templateLocked);
-      } else if (shopData.plan === 'full') {
+      } else {
           setSelectedPlan('full'); 
       }
   }, [shopData.plan, shopData.templateLocked]);
@@ -205,18 +204,6 @@ function ConfiguracionContent() {
 
   const currentPlanName = shopData.plan === 'full' ? 'Plan Full 👑' : 'Plan Básico';
 
-  // 3. PANTALLA DE CARGA (Para evitar el "flicker" de plan full a básico)
-  if (loading) {
-      return (
-          <main style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', background: '#f8fafc' }}>
-              <div style={{ textAlign: 'center', color: '#64748b' }}>
-                  <div style={{ fontSize: '40px', marginBottom: '10px' }}>⚡</div>
-                  <p style={{ fontWeight: 'bold' }}>Cargando configuración...</p>
-              </div>
-          </main>
-      );
-  }
-
   return (
       <main className="main-content" style={{ padding: '20px', background: '#f8fafc', width: '100%', height: '100vh', overflowY: 'auto', justifyContent: 'start', flex: 1 }}>
         
@@ -227,6 +214,7 @@ function ConfiguracionContent() {
 
         {/* --- STATUS BAR --- */}
         <div style={{ display:'flex', justifyContent:'center', marginBottom: 30 }}>
+            {/* 🛠️ LOGICA VISUAL CORREGIDA: Si es isNone (nuevo), mostramos azul, no rojo */}
             <div style={{ 
                 background: isActive ? '#dcfce7' : (isExpired ? '#fef2f2' : (isNone ? '#eff6ff' : 'white')), 
                 padding: '10px 25px', borderRadius: 50, 
@@ -355,7 +343,7 @@ function ConfiguracionContent() {
                         {isActive ? 'Tu próximo cobro será automático.' : 'Los primeros 14 días son GRATIS.'}
                     </p>
 
-                    {/* BOTONES ACCIÓN */}
+                    {/* BOTONES ACCIÓN (ACTUALIZADOS PARA NO EXPIRADOS) */}
                     {(!isActive && !isExpired) && (
                         <button onClick={handlePlanActivation} disabled={loadingPlan || (selectedPlan === 'simple' && !selectedTemplate)} style={{width: '100%', padding: 12, borderRadius: 8, border: 'none', marginBottom: 10, background: (loadingPlan || (selectedPlan === 'simple' && !selectedTemplate)) ? '#ccc' : '#2ecc71', color: 'white', fontWeight: 'bold', fontSize: 14, cursor: 'pointer', boxShadow: '0 4px 10px rgba(46, 204, 113, 0.3)'}}>
                             {loadingPlan ? 'Procesando...' : (shopData.plan !== 'none' ? '🔄 Actualizar Plan (Sin cargo)' : '✅ Activar Prueba Gratis (14 Días)')}
