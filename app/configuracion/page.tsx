@@ -30,7 +30,7 @@ function ConfiguracionContent() {
   const PRECIO_SIMPLE = 15200;
   const PRECIO_FULL = 20100;
 
-  // 1. DEFINIMOS ESTADOS PRIMERO (Para evitar el error de "usada antes de declaración")
+  // 1. DEFINIMOS ESTADOS
   const isTrial = shopData.subscription_status === 'trial';
   const isActive = shopData.subscription_status === 'active';
   const isExpired = shopData.subscription_status === 'past_due' || (!isActive && !isTrial);
@@ -39,7 +39,7 @@ function ConfiguracionContent() {
   const diffDays = Math.ceil(Math.abs(new Date().getTime() - trialStart.getTime()) / (1000 * 60 * 60 * 24)); 
   const daysLeft = Math.max(0, 14 - diffDays);
 
-  // 2. AHORA SÍ CALCULAMOS EL BLOQUEO (Porque ya existe 'isActive')
+  // 2. CÁLCULO DE BLOQUEO
   let daysRemainingLock = 0;
   if (shopData.plan === 'simple' && shopData.changeCount && shopData.changeCount >= 1 && shopData.lastTemplateChange) {
       const lastChange = new Date(shopData.lastTemplateChange);
@@ -49,7 +49,6 @@ function ConfiguracionContent() {
       if (diffDaysLock < 30) daysRemainingLock = 30 - diffDaysLock;
   }
   
-  // Si hay días restantes y el plan está activo, bloqueamos
   const isSelectorLocked = daysRemainingLock > 0 && shopData.plan === 'simple';
 
   const getPrice = () => {
@@ -107,7 +106,6 @@ function ConfiguracionContent() {
   };
 
   const handlePlanActivation = async () => {
-    // Si intenta cambiar de plantilla estando bloqueado
     if (isSelectorLocked && selectedPlan === 'simple' && selectedTemplate !== shopData.templateLocked) {
         alert(`🔒 No puedes cambiar de plantilla. Faltan ${daysRemainingLock} días para desbloquear el cambio.`);
         return;
@@ -204,7 +202,7 @@ function ConfiguracionContent() {
   const currentPlanName = shopData.plan === 'full' ? 'Plan Full 👑' : 'Plan Básico';
 
   return (
-      <main className="main-content" style={{ padding: '40px', background: '#f8fafc', width: '100%', height: '100vh', overflowY: 'auto', justifyContent: 'start', flex: 1 }}>
+      <main className="main-content" style={{ padding: '20px', background: '#f8fafc', width: '100%', height: '100vh', overflowY: 'auto', justifyContent: 'start', flex: 1 }}>
         
         <div style={{display:'flex', alignItems:'center', justifyContent:'center', gap:10, marginBottom:10}}>
             <span style={{fontSize:28, color:'#94a3b8'}}>⚙️</span>
@@ -231,13 +229,15 @@ function ConfiguracionContent() {
             </div>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: '25px', width: '100%' }}>
+        {/* 🛠️ AJUSTE: Subimos minmax a 300px para que las cards sean grandes en Desktop, pero entren en Mobile */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '25px', width: '100%' }}>
             
             {/* 1. LINKS ACTIVOS */}
             <div style={{ background: 'white', padding: 30, borderRadius: 16, boxShadow: '0 4px 20px rgba(0,0,0,0.03)', border:'1px solid #f1f5f9', gridColumn: '1 / -1' }}>
                 <h3 style={{ marginTop: 0, fontSize: 16, color: '#334155', display:'flex', alignItems:'center', gap:8, marginBottom:20 }}>🚀 <span style={{fontWeight:'bold'}}>Mis Links Activos</span></h3>
                 {activeTemplates.length > 0 ? (
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 15 }}>
+                    // 🛠️ AJUSTE INTERNO: Subimos a 280px para que el item no se vea diminuto
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 15 }}>
                         {activeTemplates.map((t) => (
                             <div key={t.id} style={{ background: 'white', padding: 15, borderRadius: 12, border: '1px solid #e2e8f0', boxShadow: '0 2px 5px rgba(0,0,0,0.03)', display: 'flex', flexDirection: 'column', gap: 10, position: 'relative', overflow: 'hidden' }}>
                                 <div style={{position:'absolute', left:0, top:0, bottom:0, width:4, background: t.color}}></div>
@@ -247,7 +247,8 @@ function ConfiguracionContent() {
                                 </div>
                                 <div style={{display:'flex', alignItems:'center', background:'#f8fafc', border:'1px solid #cbd5e1', borderRadius:8, padding:'5px 10px', marginLeft: 10}}>
                                     <span style={{fontSize:11, color:'#94a3b8', marginRight:2}}>{DOMAIN_URL.replace('https://','')}/</span>
-                                    <input type="text" value={editingSlugs[t.id] || ''} onChange={(e) => setEditingSlugs({...editingSlugs, [t.id]: e.target.value})} style={{border: 'none', background: 'transparent', fontWeight: '600', color: '#334155', outline: 'none', width: '100%', fontSize: 13}} />
+                                    {/* minWidth: 0 evita desborde */}
+                                    <input type="text" value={editingSlugs[t.id] || ''} onChange={(e) => setEditingSlugs({...editingSlugs, [t.id]: e.target.value})} style={{border: 'none', background: 'transparent', fontWeight: '600', color: '#334155', outline: 'none', width: '100%', minWidth: 0, fontSize: 13}} />
                                     <span style={{fontSize:12}}>✏️</span>
                                 </div>
                                 <div style={{display:'flex', gap:8, paddingLeft: 10, marginTop: 5}}>
@@ -273,7 +274,8 @@ function ConfiguracionContent() {
                     {shopData.plan === 'none' && <span style={{fontSize:10, background:'#f1c40f', color:'white', padding:'2px 8px', borderRadius:10}}>Requerido</span>}
                 </h3>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 15, marginBottom: 20 }}>
+                {/* 🛠️ AJUSTE INTERNO: Subimos a 220px para que los planes tengan cuerpo en desktop */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 15, marginBottom: 20 }}>
                     {/* BÁSICO */}
                     <div onClick={() => setSelectedPlan('simple')} style={{ border: selectedPlan === 'simple' ? '2px solid #3b82f6' : '1px solid #e2e8f0', borderRadius: 12, padding: 15, position: 'relative', background: selectedPlan === 'simple' ? '#eff6ff' : 'white', cursor:'pointer', transition:'all 0.2s' }}>
                         <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
@@ -287,8 +289,6 @@ function ConfiguracionContent() {
                         {selectedPlan === 'simple' && (
                               <div style={{marginTop:10, borderTop:'1px dashed #bfdbfe', paddingTop:10}}>
                                   <label style={{fontSize:10, fontWeight:'bold', display:'block', color:'#1e40af'}}>Elige tu plantilla:</label>
-                                  
-                                  {/* --- SELECTOR DE PLANTILLA (Bloqueado si corresponde) --- */}
                                   <select 
                                       value={selectedTemplate} 
                                       onChange={(e) => setSelectedTemplate(e.target.value)} 
@@ -328,7 +328,8 @@ function ConfiguracionContent() {
                     <div style={{marginBottom:15, padding:10, background:'#f8fafc', borderRadius:8, border:'1px solid #e2e8f0'}}>
                         {!appliedCoupon ? (
                             <div style={{display:'flex', gap:5}}>
-                                <input type="text" placeholder="¿Tenés un cupón?" value={couponCode} onChange={(e) => setCouponCode(e.target.value)} style={{flex:1, padding:8, border:'1px solid #cbd5e1', borderRadius:6, fontSize:13}} />
+                                {/* minWidth:0 para evitar que el input empuje el botón fuera */}
+                                <input type="text" placeholder="¿Tenés un cupón?" value={couponCode} onChange={(e) => setCouponCode(e.target.value)} style={{flex:1, padding:8, border:'1px solid #cbd5e1', borderRadius:6, fontSize:13, minWidth: 0}} />
                                 <button onClick={handleApplyCoupon} disabled={validatingCoupon || !couponCode} style={{background:'#334155', color:'white', border:'none', borderRadius:6, padding:'0 15px', cursor:'pointer', fontSize:12}}>{validatingCoupon ? '...' : 'Aplicar'}</button>
                             </div>
                         ) : (

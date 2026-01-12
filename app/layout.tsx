@@ -7,7 +7,7 @@ import { ShopProvider } from './context/ShopContext'; // Importamos el contexto
 const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: 'Dashboard Editor',
+  title: 'Snappy',
   description: 'Constructor de catálogos en tiempo real',
 }
 
