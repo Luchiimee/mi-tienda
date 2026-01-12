@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabaseClient';
 
 const ADMIN_EMAIL = 'luchiimee2@gmail.com'.toLowerCase();
 
-// --- DATOS POR DEFECTO (Tus "Salva vidas" locales) ---
+// --- DATOS POR DEFECTO ---
 const DEFAULT_TIENDA = [
   { titulo: 'Remera Básica', descripcion: 'Algodón 100% premium.', precio: '12000', galeria: [], imagen_url: 'https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?auto=format&fit=crop&w=500&q=60', tipo: 'producto' },
   { titulo: 'Jean Slim Fit', descripcion: 'Denim elastizado azul.', precio: '45000', galeria: [], imagen_url: 'https://images.unsplash.com/photo-1542272617-08f086303293?auto=format&fit=crop&w=500&q=60', tipo: 'producto' }
@@ -51,7 +51,7 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
   const getTipo = (tmpl: string) => (tmpl === 'menu' ? 'gastronomia' : tmpl === 'personal' ? 'enlace' : tmpl === 'catalogo' ? 'catalogo' : 'producto');
   const getDefaults = (tmpl: string) => (tmpl === 'menu' ? DEFAULT_MENU : tmpl === 'personal' ? DEFAULT_LINKS : tmpl === 'catalogo' ? DEFAULT_CATALOGO : DEFAULT_TIENDA);
 
-  // --- CARGA DE DATOS ROBUSTA ---
+  // --- CARGA DE DATOS (CON FIX DE DUPLICADOS Y CREACIÓN SEGURA) ---
   const loadShopData = async (userParam?: any) => {
     try {
         let user = userParam;
@@ -65,76 +65,92 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
         
         const userEmail = user.email.toLowerCase();
         
-        // 1. BUSCAR TIENDA (Evitamos duplicados con limit 1)
-        let { data: shop } = await supabase
+        // 1. BUSCAR TIENDA (Fix: .limit(1) evita el error de múltiples filas)
+        let { data: shop, error: fetchError } = await supabase
             .from('shops')
             .select('*')
             .eq('owner_id', user.id)
-            .order('created_at', { ascending: false })
+            .order('created_at', { ascending: false }) // Prioriza la más nueva
             .limit(1)
             .maybeSingle();
 
-        // 2. RETROCOMPATIBILIDAD
+        if (fetchError) console.error("Error buscando tienda:", fetchError.message);
+
+        // 2. Si no existe, buscamos por user_id (retrocompatibilidad)
         if (!shop) {
-             let { data: shopV2 } = await supabase.from('shops').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(1).maybeSingle();
+             let { data: shopV2 } = await supabase
+                .from('shops')
+                .select('*')
+                .eq('user_id', user.id)
+                .order('created_at', { ascending: false })
+                .limit(1)
+                .maybeSingle();
+             
              shop = shopV2;
              
-             // 3. CREACIÓN (SI NO EXISTE)
+             // 3. CREACIÓN DE TIENDA NUEVA
              if (!shop) {
-                console.log("Creando tienda nueva...");
-                try { await supabase.from('users').upsert({ id: user.id, email: userEmail }, { onConflict: 'id' }); } catch (e) {}
+                console.log("Creando tienda nueva para:", userEmail);
 
+                // Paso A: Asegurar usuario en tabla pública 'users'
+                try {
+                    await supabase.from('users').upsert({ id: user.id, email: userEmail }, { onConflict: 'id' });
+                } catch (e) { console.warn("Salto paso users"); }
+
+                // Paso B: Crear tienda (Estado 'none' = Bloqueado inicialmente)
                 const insertData = { 
                     owner_id: user.id, 
                     email: userEmail, 
                     nombre_negocio: 'Mi Negocio', 
                     template: 'tienda', 
                     plan: 'none', 
-                    subscription_status: 'none', 
+                    subscription_status: 'none', // IMPORTANTE: Empieza bloqueado
                     trial_start_date: new Date().toISOString() 
                 };
 
-                const { data: newShop, error } = await supabase.from('shops').insert([insertData]).select().single();
-                if (!error) shop = newShop;
+                const { data: newShop, error: createError } = await supabase.from('shops').insert([insertData]).select().single();
+                
+                if (createError) {
+                    console.error("Error creando tienda:", JSON.stringify(createError, null, 2));
+                    setLoading(false);
+                    return;
+                }
+                shop = newShop;
              }
         }
 
         if (shop) {
-          // Admin
-          if (userEmail === ADMIN_EMAIL) { shop.plan = 'full'; shop.subscription_status = 'active'; }
+          // Admin Override
+          if (userEmail === ADMIN_EMAIL) { 
+              shop.plan = 'full'; 
+              shop.subscription_status = 'active'; 
+              supabase.from('shops').update({ plan: 'full', subscription_status: 'active' }).eq('id', shop.id).then(); 
+          }
           
-          // Sync Básico
-          if (!shop.email || shop.email !== userEmail) supabase.from('shops').update({ email: userEmail }).eq('id', shop.id).then();
-
-          // --- PRODUCTOS ---
-          const currentTemplate = shop.template || 'tienda'; // Fallback por seguridad
-          const tipoNecesario = getTipo(currentTemplate);
-          
-          let items: any[] = [];
-          
-          // Intentar cargar de DB
-          let { data: dbItems } = await supabase.from('products').select('*').eq('shop_id', shop.id).eq('tipo', tipoNecesario).order('created_at', { ascending: true });
-          
-          if (dbItems && dbItems.length > 0) {
-              items = dbItems;
-          } else {
-             // Si no hay en DB, insertamos los defaults
-             console.log("Productos vacíos, insertando defaults...");
-             const defaults = getDefaults(currentTemplate);
-             const toInsert = defaults.map(p => ({ ...p, shop_id: shop.id, imagen_url: (p as any).imagen_url }));
-             
-             const { data: inserted } = await supabase.from('products').insert(toInsert).select();
-             
-             if (inserted && inserted.length > 0) {
-                 items = inserted;
-             } else {
-                 // FALLBACK DE ÚLTIMO RECURSO: Si falla la DB, usamos los locales para que no se vea vacío
-                 console.warn("Fallo inserción en DB, usando fallback local.");
-                 items = defaults.map((p, index) => ({ ...p, id: `local-${index}`, shop_id: shop.id }));
-             }
+          if (!shop.email || shop.email !== userEmail) {
+              supabase.from('shops').update({ email: userEmail }).eq('id', shop.id).then();
           }
 
-          // Mapeo de datos
+          let nombreFinal = shop.nombre_dueno || ''; let apellidoFinal = shop.apellido_dueno || ''; let telefonoFinal = shop.telefono_dueno || '';
+          if (!nombreFinal) {
+              const meta = user.user_metadata || {};
+              nombreFinal = meta.first_name || meta.given_name || meta.full_name?.split(' ')[0] || '';
+              apellidoFinal = meta.last_name || meta.family_name || meta.full_name?.split(' ').slice(1).join(' ') || '';
+              if(nombreFinal) await supabase.from('shops').update({ nombre_dueno: nombreFinal, apellido_dueno: apellidoFinal }).eq('id', shop.id);
+          }
+
+          // Cargar / Crear Productos
+          const tipoNecesario = getTipo(shop.template);
+          let { data: items } = await supabase.from('products').select('*').eq('shop_id', shop.id).eq('tipo', tipoNecesario).order('created_at', { ascending: true });
+          
+          if (!items || items.length === 0) {
+             const defaults = getDefaults(shop.template);
+             const toInsert = defaults.map(p => ({ ...p, shop_id: shop.id, imagen_url: (p as any).imagen_url }));
+             const { data: inserted, error: insertError } = await supabase.from('products').insert(toInsert).select();
+             if (insertError) console.error("Error insertando defaults:", JSON.stringify(insertError, null, 2));
+             if (inserted) items = inserted;
+          }
+
           const currentSlugs: any = { tienda: shop.slug_tienda || '', catalogo: shop.slug_catalogo || '', menu: shop.slug_menu || '', personal: shop.slug_personal || '' };
           const currentLogos: any = { tienda: shop.logo_tienda || '', catalogo: shop.logo_catalogo || '', menu: shop.logo_menu || '', personal: shop.logo_personal || '' };
           const currentNombres: any = { tienda: shop.nombre_tienda || shop.nombre_negocio, catalogo: shop.nombre_catalogo || shop.nombre_negocio, menu: shop.nombre_menu || shop.nombre_negocio, personal: shop.nombre_personal || shop.nombre_negocio };
@@ -142,51 +158,35 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
           const currentWhatsapps: any = { tienda: shop.whatsapp_tienda || shop.whatsapp, catalogo: shop.whatsapp_catalogo || shop.whatsapp, menu: shop.whatsapp_menu || shop.whatsapp, personal: shop.whatsapp_personal || '' };
 
           setShopData({
-            id: shop.id, 
-            email: userEmail, 
-            nombreAdmin: (userEmail.split('@')[0]), 
-            template: currentTemplate, 
-            slug: currentSlugs[currentTemplate] || '', 
-            slugs: currentSlugs,
-            logos: currentLogos, 
-            logo: currentLogos[currentTemplate] || '',
-            nombreNegocio: currentNombres[currentTemplate] || '', 
-            descripcion: currentDesc[currentTemplate] || '',
-            nombres: currentNombres, 
-            descripciones: currentDesc, 
-            whatsapp: currentWhatsapps[currentTemplate] || '', 
-            whatsapps: currentWhatsapps,
-            plantillaVisual: shop.plantilla_visual || 'Minimal', 
-            personalTheme: shop.personal_theme || 'glass', 
-            plan: shop.plan || 'none', 
-            nombreDueno: shop.nombre_dueno || '', 
-            apellidoDueno: shop.apellido_dueno || '', 
-            telefonoDueno: shop.telefono_dueno || '',
-            templateLocked: shop.template_locked || null, 
-            lastTemplateChange: shop.last_template_change, 
+            id: shop.id, email: userEmail, nombreAdmin: nombreFinal ? `${nombreFinal} ${apellidoFinal ? apellidoFinal.charAt(0).toUpperCase() + '.' : ''}` : (userEmail.split('@')[0]), 
+            template: shop.template, slug: currentSlugs[shop.template] || '', slugs: currentSlugs,
+            logos: currentLogos, logo: currentLogos[shop.template] || '',
+            nombreNegocio: currentNombres[shop.template] || '', descripcion: currentDesc[shop.template] || '',
+            nombres: currentNombres, descripciones: currentDesc, whatsapp: currentWhatsapps[shop.template] || '', whatsapps: currentWhatsapps,
+            plantillaVisual: shop.plantilla_visual || 'Minimal', personalTheme: shop.personal_theme || 'glass', plan: shop.plan || 'none', 
+            nombreDueno: nombreFinal, apellidoDueno: apellidoFinal, telefonoDueno: telefonoFinal,
+            templateLocked: shop.template_locked || null, lastTemplateChange: shop.last_template_change, 
             changeCount: shop.change_count || 0,
-            productos: items.map(p => ({ id: p.id, titulo: p.titulo, descripcion: p.descripcion, precio: p.precio, galeria: p.galeria || [], url: p.url_destino, shop_id: p.shop_id, tipo: p.tipo, imagen: p.imagen_url })),
+            productos: items?.map(p => ({ id: p.id, titulo: p.titulo, descripcion: p.descripcion, precio: p.precio, galeria: p.galeria || [], url: p.url_destino, shop_id: p.shop_id, tipo: p.tipo, imagen: p.imagen_url })) || [],
             subscription_status: shop.subscription_status || 'none', 
-            trial_start_date: shop.trial_start_date, 
-            mp_subscription_id: shop.mp_subscription_id, 
-            plan_price: shop.plan_price
+            trial_start_date: shop.trial_start_date || shop.created_at, mp_subscription_id: shop.mp_subscription_id || '', plan_price: shop.plan_price || 0
           });
         }
-    } catch (error) { 
-        console.error("Error en Context:", error); 
+    } catch (error: any) { 
+        console.error("Error CRÍTICO cargando tienda:", error.message || error); 
     } finally { 
-        setLoading(false); // SIEMPRE apagar loading
+        setLoading(false); 
     }
   };
 
   useEffect(() => { 
-      // Safety Timer: Si en 3 segundos no carga, apagar loading forzosamente
-      const safetyTimer = setTimeout(() => setLoading(false), 3000);
-
       const initLoad = async () => {
           const { data: { session } } = await supabase.auth.getSession();
-          if (session?.user) await loadShopData(session.user);
-          else setLoading(false);
+          if (session?.user) {
+              await loadShopData(session.user);
+          } else {
+              setLoading(false);
+          }
       };
       initLoad();
 
@@ -202,10 +202,7 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
           }
       });
 
-      return () => { 
-          subscription.unsubscribe(); 
-          clearTimeout(safetyTimer);
-      };
+      return () => { subscription.unsubscribe(); };
   }, []);
 
   const canEdit = () => {
@@ -215,21 +212,23 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
          const days = Math.ceil(Math.abs(new Date().getTime() - new Date(shopData.trial_start_date).getTime()) / (1000 * 60 * 60 * 24));
          return days <= 14;
       }
-      return false;
+      return false; // Si está en 'none', retorna false (BLOQUEADO)
   };
 
   const activateTrial = async (selectedPlan: 'simple' | 'full', selectedTemplate?: string) => {
       if (!shopData.id) return;
       const now = new Date().toISOString();
+      
       let nextCount = shopData.changeCount || 0;
       
+      // LOGICA PLAN BÁSICO (1 cambio, luego bloqueo)
       if (shopData.plan === 'simple' && selectedPlan === 'simple' && selectedTemplate && selectedTemplate !== shopData.templateLocked) {
           if (nextCount >= 1 && shopData.lastTemplateChange) {
              const lastChange = new Date(shopData.lastTemplateChange);
              const diffTime = Math.abs(new Date().getTime() - lastChange.getTime());
              const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
              if (diffDays < 30) {
-                 alert(`🔒 CAMBIO BLOQUEADO\n\nYa usaste tu cambio permitido. Espera ${30 - diffDays} días.`);
+                 alert(`🔒 CAMBIO BLOQUEADO\n\nYa usaste tu cambio permitido este mes. Espera ${30 - diffDays} días.`);
                  return false;
              }
              nextCount = 0; 
@@ -255,7 +254,9 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
       if (!error) {
           setShopData(prev => ({ 
               ...prev, 
-              plan: selectedPlan, subscription_status: 'trial', trial_start_date: now, 
+              plan: selectedPlan, 
+              subscription_status: 'trial', 
+              trial_start_date: now, 
               template: (selectedPlan === 'simple' && selectedTemplate) ? selectedTemplate : prev.template, 
               templateLocked: (selectedPlan === 'simple' && selectedTemplate) ? selectedTemplate : null,
               lastTemplateChange: (selectedPlan === 'simple') ? now : prev.lastTemplateChange,
@@ -273,7 +274,6 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
   const changeTemplate = async (newTemplate: string): Promise<{success: boolean, message?: string}> => {
     if (shopData.template === newTemplate) return { success: true };
 
-    // Lógica bloqueo (copiada de arriba para consistencia)
     if (shopData.plan === 'simple') {
         const currentCount = shopData.changeCount || 0;
         if (currentCount >= 1 && shopData.lastTemplateChange) {
@@ -284,12 +284,21 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
         }
     }
     
-    // UI Optimista
-    setShopData(prev => ({ ...prev, template: newTemplate, products: [] })); // Limpia productos visualmente mientras carga
+    setShopData(prev => ({ 
+        ...prev, 
+        template: newTemplate, 
+        productos: [], 
+        slug: shopData.slugs[newTemplate] || '',
+        logo: shopData.logos[newTemplate] || '',
+        nombreNegocio: shopData.nombres[newTemplate] || '', 
+        descripcion: shopData.descripciones[newTemplate] || '', 
+        whatsapp: shopData.whatsapps[newTemplate] || ''
+    }));
     
     if (shopData.id) {
        const now = new Date().toISOString();
        const updates: any = { template: newTemplate };
+       
        let nextCount = shopData.changeCount || 0;
 
        if (shopData.plan === 'simple') {
@@ -303,29 +312,45 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
        await supabase.from('shops').update(updates).eq('id', shopData.id);
 
        const tipoNecesario = getTipo(newTemplate);
-       let items: any[] = [];
-       let { data: dbItems } = await supabase.from('products').select('*').eq('shop_id', shopData.id).eq('tipo', tipoNecesario).order('created_at', { ascending: true });
-       
-       if (dbItems && dbItems.length > 0) {
-           items = dbItems;
-       } else {
+       let { data: items } = await supabase.from('products').select('*').eq('shop_id', shopData.id).eq('tipo', tipoNecesario).order('created_at', { ascending: true });
+       if (!items || items.length === 0) {
           const defaults = getDefaults(newTemplate);
           const toInsert = defaults.map(p => ({ ...p, shop_id: shopData.id, imagen_url: (p as any).imagen_url }));
           const { data: inserted } = await supabase.from('products').insert(toInsert).select();
           if (inserted) items = inserted;
-          else items = defaults.map((p, i) => ({...p, id: `local-${i}`, shop_id: shopData.id})); // Fallback local
        }
-       setShopData(prev => ({ ...prev, template: newTemplate, productos: items.map(p => ({ id: p.id, titulo: p.titulo, descripcion: p.descripcion, precio: p.precio, galeria: p.galeria || [], url: p.url_destino, shop_id: p.shop_id, tipo: p.tipo, imagen: p.imagen_url })) }));
+       setShopData(prev => ({ ...prev, template: newTemplate, productos: items?.map(p => ({ id: p.id, titulo: p.titulo, descripcion: p.descripcion, precio: p.precio, galeria: p.galeria || [], url: p.url_destino, shop_id: p.shop_id, tipo: p.tipo, imagen: p.imagen_url })) || [] }));
     }
+
     return { success: true };
   };
 
-  // Funciones auxiliares sin cambios mayores
-  const updateConfig = async (newData: any) => { if (!canEdit()) return; setShopData((prev) => { const updatedSlugs = { ...prev.slugs }; if (newData.slug !== undefined) updatedSlugs[prev.template] = newData.slug; return { ...prev, ...newData, slugs: updatedSlugs }; }); if (shopData.id) { const dbData: any = { plantilla_visual: newData.plantillaVisual, personal_theme: newData.personalTheme }; if (newData.nombreNegocio !== undefined) { if(shopData.template === 'tienda') dbData.nombre_tienda = newData.nombreNegocio; if(shopData.template === 'catalogo') dbData.nombre_catalogo = newData.nombreNegocio; if(shopData.template === 'menu') dbData.nombre_menu = newData.nombreNegocio; if(shopData.template === 'personal') dbData.nombre_personal = newData.nombreNegocio; } if (newData.descripcion !== undefined) { if(shopData.template === 'tienda') dbData.descripcion_tienda = newData.descripcion; if(shopData.template === 'catalogo') dbData.descripcion_catalogo = newData.descripcion; if(shopData.template === 'menu') dbData.descripcion_menu = newData.descripcion; if(shopData.template === 'personal') dbData.descripcion_personal = newData.descripcion; } if (newData.whatsapp !== undefined) { if(shopData.template === 'tienda') dbData.whatsapp_tienda = newData.whatsapp; if(shopData.template === 'catalogo') dbData.whatsapp_catalogo = newData.whatsapp; if(shopData.template === 'menu') dbData.whatsapp_menu = newData.whatsapp; if(shopData.template === 'personal') dbData.whatsapp_personal = newData.whatsapp; } if (newData.logo !== undefined) { dbData.logo_url = newData.logo; if(shopData.template === 'tienda') dbData.logo_tienda = newData.logo; if(shopData.template === 'catalogo') dbData.logo_catalogo = newData.logo; if(shopData.template === 'menu') dbData.logo_menu = newData.logo; if(shopData.template === 'personal') dbData.logo_personal = newData.logo; } if (newData.slug !== undefined) { if(shopData.template === 'tienda') dbData.slug_tienda = newData.slug; if(shopData.template === 'catalogo') dbData.slug_catalogo = newData.slug; if(shopData.template === 'menu') dbData.slug_menu = newData.slug; if(shopData.template === 'personal') dbData.slug_personal = newData.slug; } await supabase.from('shops').update(dbData).eq('id', shopData.id); } };
+  const updateConfig = async (newData: any) => {
+    if (!canEdit()) return;
+    setShopData((prev) => {
+        const updatedSlugs = { ...prev.slugs }; const updatedLogos = { ...prev.logos }; const updatedNombres = { ...prev.nombres }; const updatedDesc = { ...prev.descripciones }; const updatedWhatsapps = { ...prev.whatsapps };
+        if (newData.slug !== undefined) updatedSlugs[prev.template] = newData.slug;
+        if (newData.logos) Object.assign(updatedLogos, newData.logos); else if (newData.logo !== undefined) updatedLogos[prev.template] = newData.logo;
+        if (newData.nombreNegocio !== undefined) updatedNombres[prev.template] = newData.nombreNegocio;
+        if (newData.descripcion !== undefined) updatedDesc[prev.template] = newData.descripcion;
+        if (newData.whatsapp !== undefined) updatedWhatsapps[prev.template] = newData.whatsapp;
+        return { ...prev, ...newData, slugs: updatedSlugs, logos: updatedLogos, nombres: updatedNombres, descripciones: updatedDesc, whatsapps: updatedWhatsapps, logo: (newData.logo !== undefined) ? newData.logo : prev.logo };
+    });
+    if (shopData.id) {
+        const dbData: any = { plantilla_visual: newData.plantillaVisual, personal_theme: newData.personalTheme };
+        if (newData.nombreNegocio !== undefined) { if(shopData.template === 'tienda') dbData.nombre_tienda = newData.nombreNegocio; if(shopData.template === 'catalogo') dbData.nombre_catalogo = newData.nombreNegocio; if(shopData.template === 'menu') dbData.nombre_menu = newData.nombreNegocio; if(shopData.template === 'personal') dbData.nombre_personal = newData.nombreNegocio; }
+        if (newData.descripcion !== undefined) { if(shopData.template === 'tienda') dbData.descripcion_tienda = newData.descripcion; if(shopData.template === 'catalogo') dbData.descripcion_catalogo = newData.descripcion; if(shopData.template === 'menu') dbData.descripcion_menu = newData.descripcion; if(shopData.template === 'personal') dbData.descripcion_personal = newData.descripcion; }
+        if (newData.whatsapp !== undefined) { if(shopData.template === 'tienda') dbData.whatsapp_tienda = newData.whatsapp; if(shopData.template === 'catalogo') dbData.whatsapp_catalogo = newData.whatsapp; if(shopData.template === 'menu') dbData.whatsapp_menu = newData.whatsapp; if(shopData.template === 'personal') dbData.whatsapp_personal = newData.whatsapp; }
+        if (newData.logo !== undefined) { dbData.logo_url = newData.logo; if(shopData.template === 'tienda') dbData.logo_tienda = newData.logo; if(shopData.template === 'catalogo') dbData.logo_catalogo = newData.logo; if(shopData.template === 'menu') dbData.logo_menu = newData.logo; if(shopData.template === 'personal') dbData.logo_personal = newData.logo; }
+        if (newData.slug !== undefined) { if(shopData.template === 'tienda') dbData.slug_tienda = newData.slug; if(shopData.template === 'catalogo') dbData.slug_catalogo = newData.slug; if(shopData.template === 'menu') dbData.slug_menu = newData.slug; if(shopData.template === 'personal') dbData.slug_personal = newData.slug; }
+        await supabase.from('shops').update(dbData).eq('id', shopData.id);
+    }
+  };
+
   const updateTemplateSlug = async (tmpl: string, newSlug: string) => { if (!canEdit() || !shopData.id) return; setShopData((prev) => { const updatedSlugs = { ...prev.slugs, [tmpl]: newSlug }; return { ...prev, slugs: updatedSlugs, slug: (prev.template === tmpl) ? newSlug : prev.slug }; }); const dbData: any = {}; if(tmpl === 'tienda') dbData.slug_tienda = newSlug; if(tmpl === 'catalogo') dbData.slug_catalogo = newSlug; if(tmpl === 'menu') dbData.slug_menu = newSlug; if(tmpl === 'personal') dbData.slug_personal = newSlug; await supabase.from('shops').update(dbData).eq('id', shopData.id); };
-  const resetTemplate = async (tmplToReset: string) => { if(!shopData.id) return; setShopData(prev => ({ ...prev, slugs: { ...prev.slugs, [tmplToReset]: '' } })); const dbData: any = {}; if(tmplToReset === 'tienda') { dbData.slug_tienda = null; dbData.logo_tienda = null; dbData.nombre_tienda = null; dbData.descripcion_tienda = null; dbData.whatsapp_tienda = null; } if(tmplToReset === 'catalogo') { dbData.slug_catalogo = null; dbData.logo_catalogo = null; dbData.nombre_catalogo = null; dbData.descripcion_catalogo = null; dbData.whatsapp_catalogo = null; } if(tmplToReset === 'menu') { dbData.slug_menu = null; dbData.logo_menu = null; dbData.nombre_menu = null; dbData.descripcion_menu = null; dbData.whatsapp_menu = null; } if(tmplToReset === 'personal') { dbData.slug_personal = null; dbData.logo_personal = null; dbData.nombre_personal = null; dbData.descripcion_personal = null; dbData.whatsapp_personal = null; } await supabase.from('shops').update(dbData).eq('id', shopData.id); const tipo = getTipo(tmplToReset); await supabase.from('products').delete().eq('shop_id', shopData.id).eq('tipo', tipo); if (shopData.template === tmplToReset) changeTemplate(tmplToReset); };
+  const resetTemplate = async (tmplToReset: string) => { if(!shopData.id) return; setShopData(prev => { const newSlugs = { ...prev.slugs, [tmplToReset]: '' }; const newLogos = { ...prev.logos, [tmplToReset]: '' }; const newNombres = { ...prev.nombres, [tmplToReset]: 'Mi ' + tmplToReset.charAt(0).toUpperCase() + tmplToReset.slice(1) }; const newDesc = { ...prev.descripciones, [tmplToReset]: '' }; const newWa = { ...prev.whatsapps, [tmplToReset]: '' }; return { ...prev, slugs: newSlugs, logos: newLogos, nombres: newNombres, descripciones: newDesc, whatsapps: newWa }; }); const dbData: any = {}; if(tmplToReset === 'tienda') { dbData.slug_tienda = null; dbData.logo_tienda = null; dbData.nombre_tienda = null; dbData.descripcion_tienda = null; dbData.whatsapp_tienda = null; } if(tmplToReset === 'catalogo') { dbData.slug_catalogo = null; dbData.logo_catalogo = null; dbData.nombre_catalogo = null; dbData.descripcion_catalogo = null; dbData.whatsapp_catalogo = null; } if(tmplToReset === 'menu') { dbData.slug_menu = null; dbData.logo_menu = null; dbData.nombre_menu = null; dbData.descripcion_menu = null; dbData.whatsapp_menu = null; } if(tmplToReset === 'personal') { dbData.slug_personal = null; dbData.logo_personal = null; dbData.nombre_personal = null; dbData.descripcion_personal = null; dbData.whatsapp_personal = null; } await supabase.from('shops').update(dbData).eq('id', shopData.id); const tipo = getTipo(tmplToReset); await supabase.from('products').delete().eq('shop_id', shopData.id).eq('tipo', tipo); if (shopData.template === tmplToReset) changeTemplate(tmplToReset); };
   const lockTemplate = async (selectedTemplate: string) => { if(!shopData.id) return; if(confirm(`¿Confirmar "${selectedTemplate.toUpperCase()}" como única plantilla?`)) { const now = new Date().toISOString(); await supabase.from('shops').update({ template: selectedTemplate, template_locked: selectedTemplate, last_template_change: now }).eq('id', shopData.id); setShopData(prev => ({ ...prev, template: selectedTemplate, templateLocked: selectedTemplate, lastTemplateChange: now })); return true; } return false; };
-  const updateProfile = async (data: any) => { setShopData(prev => ({ ...prev, ...data })); if(shopData.id) { const dbData: any = {}; if(data.nombreDueno) dbData.nombre_dueno = data.nombreDueno; if(data.apellidoDueno) dbData.apellido_dueno = data.apellidoDueno; if(data.telefonoDueno) dbData.telefono_dueno = data.telefonoDueno; if(shopData.email) dbData.email = shopData.email; if(data.plan) { dbData.plan = data.plan; if(data.plan === 'full') dbData.template_locked = null; } await supabase.from('shops').update(dbData).eq('id', shopData.id); } };
+  const updateProfile = async (data: any) => { setShopData(prev => { let nuevoNombre = prev.nombreAdmin; if (data.nombreDueno || data.apellidoDueno) { const n = data.nombreDueno || prev.nombreDueno; const a = data.apellidoDueno || prev.apellidoDueno; if(n) nuevoNombre = `${n} ${a ? a.charAt(0).toUpperCase() + '.' : ''}`; } return { ...prev, ...data, nombreAdmin: nuevoNombre }; }); if(shopData.id) { const dbData: any = {}; if(data.nombreDueno !== undefined) dbData.nombre_dueno = data.nombreDueno; if(data.apellidoDueno !== undefined) dbData.apellido_dueno = data.apellidoDueno; if(data.telefonoDueno !== undefined) dbData.telefono_dueno = data.telefonoDueno; if(shopData.email) dbData.email = shopData.email; if(data.plan !== undefined) { dbData.plan = data.plan; if(data.plan === 'full') dbData.template_locked = null; } const { error } = await supabase.from('shops').update(dbData).eq('id', shopData.id); if (error) console.error("Error guardando perfil:", error); } };
   const changePassword = async (p: string) => (await supabase.auth.updateUser({ password: p })).error;
   const manualSave = async () => true; 
   const addProduct = async (prod: Product) => { if (!canEdit() || !shopData.id) return; const tipoActual = getTipo(shopData.template); const { data } = await supabase.from('products').insert([{ shop_id: shopData.id, titulo: prod.titulo, descripcion: prod.descripcion, precio: prod.precio, galeria: prod.galeria || [], url_destino: prod.url, tipo: tipoActual, imagen_url: prod.imagen }]).select().single(); if (data) { setShopData((prev:any) => ({ ...prev, productos: [...prev.productos, { id: data.id, titulo: data.titulo, descripcion: data.descripcion, precio: data.precio, galeria: data.galeria || [], url: data.url_destino, shop_id: data.shop_id, tipo: data.tipo, imagen: data.imagen_url }] })); } };
@@ -337,7 +362,5 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
       {children}
     </ShopContext.Provider>
   );
-  
 };
-
 export const useShop = () => useContext(ShopContext);
