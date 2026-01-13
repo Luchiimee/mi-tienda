@@ -24,14 +24,14 @@ function ConfiguracionContent() {
   const [appliedCoupon, setAppliedCoupon] = useState<{code: string, percent: number} | null>(null);
   const [validatingCoupon, setValidatingCoupon] = useState(false);
 
-  // Initialize with context data
+  // Inicializar estado
   const [selectedPlan, setSelectedPlan] = useState<'simple' | 'full'>(shopData.plan === 'simple' ? 'simple' : 'full');
   const [selectedTemplate, setSelectedTemplate] = useState<string>(shopData.templateLocked || '');
 
   const PRECIO_SIMPLE = 15200;
   const PRECIO_FULL = 20100;
 
-  // States
+  // Estados
   const isTrial = shopData.subscription_status === 'trial';
   const isActive = shopData.subscription_status === 'active';
   const isNone = shopData.subscription_status === 'none'; 
@@ -41,7 +41,7 @@ function ConfiguracionContent() {
   const diffDays = Math.ceil(Math.abs(new Date().getTime() - trialStart.getTime()) / (1000 * 60 * 60 * 24)); 
   const daysLeft = Math.max(0, 14 - diffDays);
 
-  // Plan Locking Logic
+  // Bloqueo
   let daysRemainingLock = 0;
   if (shopData.plan === 'simple' && shopData.changeCount && shopData.changeCount >= 1 && shopData.lastTemplateChange) {
       const lastChange = new Date(shopData.lastTemplateChange);
@@ -61,7 +61,7 @@ function ConfiguracionContent() {
 
   useEffect(() => { setEditingSlugs(shopData.slugs); }, [shopData.slugs]);
   
-  // Sync UI with data
+  // Sincronizar UI
   useEffect(() => {
       if (shopData.plan === 'simple') {
           setSelectedPlan('simple');
@@ -92,7 +92,7 @@ function ConfiguracionContent() {
             if (!error) {
                 alert("🎉 ¡Suscripción confirmada y ACTIVA!");
                 router.replace('/configuracion');
-                setTimeout(() => window.location.reload(), 1000);
+                // Quitamos el reload forzado para evitar parpadeos
             }
         };
         if (shopData.subscription_status !== 'active') activarCuenta();
@@ -130,9 +130,10 @@ function ConfiguracionContent() {
     
     if (success) {
         alert(isTrial || isNone ? "✅ Plan activado con éxito." : "🎉 ¡Cambio realizado!");
-        window.location.reload(); 
+        // ⚠️ CAMBIO CLAVE: NO HACEMOS RELOAD. Dejamos que React actualice la vista solo.
+        // window.location.reload(); <--- ELIMINADO
     } else {
-        alert("Error al activar plan.");
+        // El error detallado ya se muestra en el ShopContext
     }
   };
 
@@ -205,17 +206,9 @@ function ConfiguracionContent() {
   const currentPlanName = shopData.plan === 'full' ? 'Plan Full 👑' : 'Plan Básico';
 
   // --- LOADING SCREEN ---
- if (loading) {
+  if (loading) {
       return (
-          <main style={{ 
-              display: 'flex', 
-              justifyContent: 'center', 
-              alignItems: 'center', 
-              height: '100vh', 
-              background: '#f8fafc',
-              flex: 1,        // 👈 ESTO ES LA CLAVE: Ocupa el espacio restante
-              width: '100%'   // 👈 Asegura que use todo el ancho disponible
-          }}>
+          <main style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', background: '#f8fafc', flex: 1, width: '100%' }}>
               <div style={{ textAlign: 'center', color: '#64748b' }}>
                   <div style={{ fontSize: '40px', marginBottom: '10px' }}>⚡</div>
                   <p style={{ fontWeight: 'bold' }}>Cargando configuración...</p>
