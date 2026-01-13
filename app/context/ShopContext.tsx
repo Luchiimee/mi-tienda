@@ -8,7 +8,7 @@ const ADMIN_EMAIL = 'luchiimee2@gmail.com'.toLowerCase();
 // --- DATOS POR DEFECTO ---
 const DEFAULT_TIENDA = [
   { titulo: 'Remera Básica', descripcion: 'Algodón 100% premium.', precio: '12000', galeria: [], imagen_url: 'https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?auto=format&fit=crop&w=500&q=60', tipo: 'producto' },
-  { titulo: 'Jean Slim Fit', descripcion: 'Denim elastizado azul.', precio: '45000', galeria: [], imagen_url: 'https://unsplash.com/es/fotos/hombre-con-camiseta-blanca-y-pantalones-negros-de-pie-sobre-el-suelo-blanco-ylHcWlrMlzs', tipo: 'producto' }
+  { titulo: 'Jean Slim Fit', descripcion: 'Denim elastizado azul.', precio: '45000', galeria: [], imagen_url: '/pantalon-defecto.jpg', tipo: 'producto' }
 ];
 const DEFAULT_CATALOGO = [
   { titulo: 'Sofá 3 Cuerpos', descripcion: 'Pana antimanchas.', precio: '', galeria: [], imagen_url: 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=500&q=60', tipo: 'catalogo' },
