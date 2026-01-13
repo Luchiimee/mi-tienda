@@ -63,13 +63,13 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
         if (!user || !user.email) { setLoading(false); return; }
         const userEmail = user.email.toLowerCase();
         
-        // 1. Asegurar usuario en tabla pública (Evita error 23503)
+        // 1. Asegurar usuario en tabla pública
         try { await supabase.from('users').upsert({ id: user.id, email: userEmail }, { onConflict: 'id' }); } catch (e) { console.warn("Upsert user ignorado:", e); }
 
         // 2. BUSCAR TIENDA
         let { data: shop } = await supabase.from('shops').select('*').eq('owner_id', user.id).order('created_at', { ascending: false }).limit(1).maybeSingle();
 
-        // 3. RETROCOMPATIBILIDAD / CREACIÓN
+        // 3. CREACIÓN SI NO EXISTE
         if (!shop) {
              let { data: shopV2 } = await supabase.from('shops').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(1).maybeSingle();
              shop = shopV2;
@@ -89,20 +89,29 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
           if (userEmail === ADMIN_EMAIL) { shop.plan = 'full'; shop.subscription_status = 'active'; }
           if (!shop.email || shop.email !== userEmail) supabase.from('shops').update({ email: userEmail }).eq('id', shop.id).then();
 
-          // ---> CORRECCIÓN PERFIL VACÍO <---
+          // ---> SINCRO DE DATOS DE PERFIL (Ahora busca 'nombre', 'apellido', 'telefono' en metadata) <---
           let nombreFinal = shop.nombre_dueno || ''; 
           let apellidoFinal = shop.apellido_dueno || '';
           let telefonoFinal = shop.telefono_dueno || '';
 
           if (!nombreFinal) {
               const meta = user.user_metadata || {};
-              nombreFinal = meta.first_name || meta.given_name || meta.full_name?.split(' ')[0] || '';
-              apellidoFinal = meta.last_name || meta.family_name || meta.full_name?.split(' ').slice(1).join(' ') || '';
-              
-              // Si aún está vacío (login por email), usamos el email como nombre provisorio
-              if (!nombreFinal) {
-                  nombreFinal = userEmail.split('@')[0];
+              // Priorizamos los campos que usaste en tu formulario de registro
+              nombreFinal = meta.nombre || meta.first_name || meta.given_name || (meta.full_name ? meta.full_name.split(' ')[0] : '') || '';
+              apellidoFinal = meta.apellido || meta.last_name || meta.family_name || (meta.full_name ? meta.full_name.split(' ').slice(1).join(' ') : '') || '';
+              telefonoFinal = meta.telefono || meta.phone || '';
+
+              // Si encontramos datos en la metadata, los guardamos en la base de datos de la tienda
+              if (nombreFinal || telefonoFinal) {
+                  await supabase.from('shops').update({ 
+                      nombre_dueno: nombreFinal, 
+                      apellido_dueno: apellidoFinal,
+                      telefono_dueno: telefonoFinal 
+                  }).eq('id', shop.id);
               }
+              
+              // Si aún así no hay nombre, usar parte del email
+              if (!nombreFinal) nombreFinal = userEmail.split('@')[0];
           }
 
           // Cargar Productos
@@ -121,7 +130,7 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
              else items = defaults.map((p, index) => ({ ...p, id: `local-${index}`, shop_id: shop.id }));
           }
 
-          // Mapeo
+          // Mapeo de datos al estado
           const currentSlugs: any = { tienda: shop.slug_tienda || '', catalogo: shop.slug_catalogo || '', menu: shop.slug_menu || '', personal: shop.slug_personal || '' };
           const currentLogos: any = { tienda: shop.logo_tienda || '', catalogo: shop.logo_catalogo || '', menu: shop.logo_menu || '', personal: shop.logo_personal || '' };
           const currentNombres: any = { tienda: shop.nombre_tienda || shop.nombre_negocio, catalogo: shop.nombre_catalogo || shop.nombre_negocio, menu: shop.nombre_menu || shop.nombre_negocio, personal: shop.nombre_personal || shop.nombre_negocio };
@@ -135,7 +144,7 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
             nombreNegocio: currentNombres[currentTemplate] || '', descripcion: currentDesc[currentTemplate] || '',
             nombres: currentNombres, descripciones: currentDesc, whatsapp: currentWhatsapps[currentTemplate] || '', whatsapps: currentWhatsapps,
             plantillaVisual: shop.plantilla_visual || 'Minimal', personalTheme: shop.personal_theme || 'glass', plan: shop.plan || 'none', 
-            nombreDueno: nombreFinal, // ✅ AHORA USA EL NOMBRE CALCULADO
+            nombreDueno: nombreFinal, 
             apellidoDueno: apellidoFinal, 
             telefonoDueno: telefonoFinal,
             templateLocked: shop.template_locked || null, lastTemplateChange: shop.last_template_change, 
@@ -171,7 +180,6 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
       return false;
   };
 
-  // ---> CORRECCIÓN ACTIVAR PLAN (MOSTRAR ERROR REAL) <---
   const activateTrial = async (selectedPlan: 'simple' | 'full', selectedTemplate?: string) => {
       if (!shopData.id) return alert("Error: No se encontró la tienda. Recarga la página.");
       const now = new Date().toISOString();
@@ -205,7 +213,7 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
       
       if (error) {
           console.error("❌ ERROR AL ACTIVAR PLAN:", error);
-          alert(`Error al guardar en base de datos: ${error.message || error.details}`); // <--- AQUÍ TE DIRÁ EL ERROR REAL
+          alert(`Error al guardar en base de datos: ${error.message || error.details}`); 
           return false;
       }
       
