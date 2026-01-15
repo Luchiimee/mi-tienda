@@ -1,11 +1,11 @@
 'use client';
 
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 
 const ADMIN_EMAIL = 'luchiimee2@gmail.com'.toLowerCase();
 
-// --- DATOS POR DEFECTO ---
+// ... TUS CONSTANTES DEFAULT_TIENDA, DEFAULT_CATALOGO, ETC. (Déjalas igual) ...
 const DEFAULT_TIENDA = [
   { titulo: 'Remera Básica', descripcion: 'Algodón 100% premium.', precio: '12000', galeria: [], imagen_url: 'https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?auto=format&fit=crop&w=500&q=60', tipo: 'producto' },
   { titulo: 'Jean Slim Fit', descripcion: 'Denim elastizado azul.', precio: '45000', galeria: [], imagen_url: '/pantalon-defecto.jpg', tipo: 'producto' }
@@ -35,6 +35,7 @@ type ShopData = {
   subscription_status?: string; trial_start_date?: string; mp_subscription_id?: string; plan_price?: number;
 };
 
+// ESTADO INICIAL VACÍO
 const emptyState: ShopData = {
   email: '', nombreAdmin: '', template: 'tienda', slug: '', slugs: {}, logos: {}, nombreNegocio: '', descripcion: '', whatsapp: '', logo: '', 
   plantillaVisual: 'Minimal', personalTheme: 'glass', plan: 'none', nombreDueno: '', apellidoDueno: '', telefonoDueno: '', 
@@ -52,7 +53,8 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
   const getDefaults = (tmpl: string) => (tmpl === 'menu' ? DEFAULT_MENU : tmpl === 'personal' ? DEFAULT_LINKS : tmpl === 'catalogo' ? DEFAULT_CATALOGO : DEFAULT_TIENDA);
 
   // --- CARGA DE DATOS ---
-  const loadShopData = async (userParam?: any) => {
+  // Usamos useCallback para que la función sea estable y podamos usarla en useEffects
+  const loadShopData = useCallback(async (userParam?: any) => {
     try {
         let user = userParam;
         if (!user) {
@@ -60,116 +62,166 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
             user = fetchedUser;
         }
 
-        if (!user || !user.email) { setLoading(false); return; }
+        if (!user || !user.email) { 
+            console.log("No user found in loadShopData");
+            setLoading(false); 
+            return; 
+        }
+        
         const userEmail = user.email.toLowerCase();
         
-        // 1. Asegurar usuario en tabla pública
+        // 1. Asegurar usuario
         try { await supabase.from('users').upsert({ id: user.id, email: userEmail }, { onConflict: 'id' }); } catch (e) { console.warn("Upsert user ignorado:", e); }
 
-        // 2. BUSCAR TIENDA
-        let { data: shop } = await supabase.from('shops').select('*').eq('owner_id', user.id).order('created_at', { ascending: false }).limit(1).maybeSingle();
+        // 2. BUSCAR TIENDA (Intentamos owner_id y user_id por las dudas)
+        let { data: shop, error: fetchError } = await supabase.from('shops').select('*').or(`owner_id.eq.${user.id},user_id.eq.${user.id}`).order('created_at', { ascending: false }).limit(1).maybeSingle();
+
+        if (fetchError) console.error("Error fetching shop:", fetchError);
 
         // 3. CREACIÓN SI NO EXISTE
         if (!shop) {
-             let { data: shopV2 } = await supabase.from('shops').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(1).maybeSingle();
-             shop = shopV2;
+             console.log("Creando tienda nueva...");
+             const insertData = { 
+                 owner_id: user.id, email: userEmail, nombre_negocio: 'Mi Negocio', template: 'tienda', plan: 'none', subscription_status: 'none', trial_start_date: new Date().toISOString() 
+             };
+             const { data: newShop, error: createError } = await supabase.from('shops').insert([insertData]).select().single();
              
-             if (!shop) {
-                console.log("Creando tienda nueva...");
-                const insertData = { 
-                    owner_id: user.id, email: userEmail, nombre_negocio: 'Mi Negocio', template: 'tienda', plan: 'none', subscription_status: 'none', trial_start_date: new Date().toISOString() 
-                };
-                const { data: newShop, error: createError } = await supabase.from('shops').insert([insertData]).select().single();
-                if (createError) { console.error("Error creando tienda:", createError); setLoading(false); return; }
-                shop = newShop;
+             if (createError) { 
+                 console.error("Error crítico creando tienda:", createError); 
+                 setLoading(false); 
+                 return; // Acá cortamos si falla la creación
              }
+             shop = newShop;
         }
 
+        // SI LLEGAMOS ACÁ, SHOP TIENE QUE EXISTIR
         if (shop) {
+          // Lógica Admin
           if (userEmail === ADMIN_EMAIL) { shop.plan = 'full'; shop.subscription_status = 'active'; }
           if (!shop.email || shop.email !== userEmail) supabase.from('shops').update({ email: userEmail }).eq('id', shop.id).then();
 
-          // ---> SINCRO DE DATOS DE PERFIL (Ahora busca 'nombre', 'apellido', 'telefono' en metadata) <---
+          // Sincro metadatos
           let nombreFinal = shop.nombre_dueno || ''; 
           let apellidoFinal = shop.apellido_dueno || '';
           let telefonoFinal = shop.telefono_dueno || '';
 
           if (!nombreFinal) {
               const meta = user.user_metadata || {};
-              // Priorizamos los campos que usaste en tu formulario de registro
-              nombreFinal = meta.nombre || meta.first_name || meta.given_name || (meta.full_name ? meta.full_name.split(' ')[0] : '') || '';
-              apellidoFinal = meta.apellido || meta.last_name || meta.family_name || (meta.full_name ? meta.full_name.split(' ').slice(1).join(' ') : '') || '';
+              nombreFinal = meta.nombre || meta.first_name || (meta.full_name ? meta.full_name.split(' ')[0] : '') || '';
+              apellidoFinal = meta.apellido || meta.last_name || (meta.full_name ? meta.full_name.split(' ').slice(1).join(' ') : '') || '';
               telefonoFinal = meta.telefono || meta.phone || '';
-
-              // Si encontramos datos en la metadata, los guardamos en la base de datos de la tienda
-              if (nombreFinal || telefonoFinal) {
-                  await supabase.from('shops').update({ 
-                      nombre_dueno: nombreFinal, 
-                      apellido_dueno: apellidoFinal,
-                      telefono_dueno: telefonoFinal 
-                  }).eq('id', shop.id);
-              }
               
-              // Si aún así no hay nombre, usar parte del email
-              if (!nombreFinal) nombreFinal = userEmail.split('@')[0];
+              if (nombreFinal) nombreFinal = userEmail.split('@')[0]; // Fallback
           }
 
           // Cargar Productos
           const currentTemplate = shop.template || 'tienda';
           const tipoNecesario = getTipo(currentTemplate);
+          
           let items: any[] = [];
           let { data: dbItems } = await supabase.from('products').select('*').eq('shop_id', shop.id).eq('tipo', tipoNecesario).order('created_at', { ascending: true });
           
           if (dbItems && dbItems.length > 0) {
               items = dbItems;
           } else {
+             // Si no hay productos, intentamos crearlos o usar defaults locales
              const defaults = getDefaults(currentTemplate);
              const toInsert = defaults.map(p => ({ ...p, shop_id: shop.id, imagen_url: (p as any).imagen_url }));
              const { data: inserted } = await supabase.from('products').insert(toInsert).select();
+             
              if (inserted && inserted.length > 0) items = inserted;
              else items = defaults.map((p, index) => ({ ...p, id: `local-${index}`, shop_id: shop.id }));
           }
 
-          // Mapeo de datos al estado
+          // Mapeo seguro de datos
           const currentSlugs: any = { tienda: shop.slug_tienda || '', catalogo: shop.slug_catalogo || '', menu: shop.slug_menu || '', personal: shop.slug_personal || '' };
           const currentLogos: any = { tienda: shop.logo_tienda || '', catalogo: shop.logo_catalogo || '', menu: shop.logo_menu || '', personal: shop.logo_personal || '' };
           const currentNombres: any = { tienda: shop.nombre_tienda || shop.nombre_negocio, catalogo: shop.nombre_catalogo || shop.nombre_negocio, menu: shop.nombre_menu || shop.nombre_negocio, personal: shop.nombre_personal || shop.nombre_negocio };
           const currentDesc: any = { tienda: shop.descripcion_tienda || shop.descripcion, catalogo: shop.descripcion_catalogo || shop.descripcion, menu: shop.descripcion_menu || shop.descripcion, personal: shop.descripcion_personal || shop.descripcion };
           const currentWhatsapps: any = { tienda: shop.whatsapp_tienda || shop.whatsapp, catalogo: shop.whatsapp_catalogo || shop.whatsapp, menu: shop.whatsapp_menu || shop.whatsapp, personal: shop.whatsapp_personal || '' };
 
+          // ACÁ ESTÁ EL FIX: setShopData se ejecuta con los datos frescos
           setShopData({
-            id: shop.id, email: userEmail, nombreAdmin: (userEmail.split('@')[0]), 
-            template: currentTemplate, slug: currentSlugs[currentTemplate] || '', slugs: currentSlugs,
-            logos: currentLogos, logo: currentLogos[currentTemplate] || '',
-            nombreNegocio: currentNombres[currentTemplate] || '', descripcion: currentDesc[currentTemplate] || '',
-            nombres: currentNombres, descripciones: currentDesc, whatsapp: currentWhatsapps[currentTemplate] || '', whatsapps: currentWhatsapps,
-            plantillaVisual: shop.plantilla_visual || 'Minimal', personalTheme: shop.personal_theme || 'glass', plan: shop.plan || 'none', 
+            id: shop.id, 
+            email: userEmail, 
+            nombreAdmin: (userEmail.split('@')[0]), 
+            template: currentTemplate, 
+            slug: currentSlugs[currentTemplate] || '', 
+            slugs: currentSlugs,
+            logos: currentLogos, 
+            logo: currentLogos[currentTemplate] || '',
+            nombreNegocio: currentNombres[currentTemplate] || '', 
+            descripcion: currentDesc[currentTemplate] || '',
+            nombres: currentNombres, 
+            descripciones: currentDesc, 
+            whatsapp: currentWhatsapps[currentTemplate] || '', 
+            whatsapps: currentWhatsapps,
+            plantillaVisual: shop.plantilla_visual || 'Minimal', 
+            personalTheme: shop.personal_theme || 'glass', 
+            plan: shop.plan || 'none', // IMPORTANTE: Acá trae el plan real
             nombreDueno: nombreFinal, 
             apellidoDueno: apellidoFinal, 
             telefonoDueno: telefonoFinal,
-            templateLocked: shop.template_locked || null, lastTemplateChange: shop.last_template_change, 
+            templateLocked: shop.template_locked || null, 
+            lastTemplateChange: shop.last_template_change, 
             changeCount: shop.change_count || 0,
             productos: items.map(p => ({ id: p.id, titulo: p.titulo, descripcion: p.descripcion, precio: p.precio, galeria: p.galeria || [], url: p.url_destino, shop_id: p.shop_id, tipo: p.tipo, imagen: p.imagen_url })),
             subscription_status: shop.subscription_status || 'none', 
-            trial_start_date: shop.trial_start_date, mp_subscription_id: shop.mp_subscription_id, plan_price: shop.plan_price
+            trial_start_date: shop.trial_start_date, 
+            mp_subscription_id: shop.mp_subscription_id, 
+            plan_price: shop.plan_price
           });
         }
-    } catch (error) { console.error("Error en Context:", error); } finally { setLoading(false); }
-  };
+    } catch (error) { 
+        console.error("Error FATAL en Context:", error); 
+    } finally { 
+        setLoading(false); 
+    }
+  }, []); // Dependencias vacías porque usamos supabase client externo
 
   useEffect(() => { 
-      const safetyTimer = setTimeout(() => setLoading(false), 4000);
+      const safetyTimer = setTimeout(() => setLoading(false), 5000); // 5 seg seguridad
+
       const initLoad = async () => {
           const { data: { session } } = await supabase.auth.getSession();
           if (session?.user) await loadShopData(session.user); else setLoading(false);
       };
-      initLoad();
-      const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-          if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') { if (session?.user) { setLoading(true); await loadShopData(session.user); } } else if (event === 'SIGNED_OUT') { setShopData(emptyState); setLoading(false); }
-      });
-      return () => { subscription.unsubscribe(); clearTimeout(safetyTimer); };
-  }, []);
 
+      initLoad();
+
+      // --- NUEVO: LISTENER DE FOCO (REFRESH AL VOLVER A LA PESTAÑA) ---
+      const onFocus = () => {
+          supabase.auth.getSession().then(({ data: { session } }) => {
+              if (session?.user) {
+                  console.log("🔄 Ventana en foco: Recargando datos...");
+                  loadShopData(session.user);
+              }
+          });
+      };
+      window.addEventListener('focus', onFocus);
+      // -------------------------------------------------------------
+
+      const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+          if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') { 
+              if (session?.user) { 
+                  setLoading(true); 
+                  await loadShopData(session.user); 
+              } 
+          } else if (event === 'SIGNED_OUT') { 
+              setShopData(emptyState); 
+              setLoading(false); 
+          }
+      });
+
+      return () => { 
+          subscription.unsubscribe(); 
+          clearTimeout(safetyTimer); 
+          window.removeEventListener('focus', onFocus); // Limpieza
+      };
+  }, [loadShopData]);
+
+  // ... (RESTO DE TUS FUNCIONES: canEdit, activateTrial, ETC. IGUAL QUE ANTES) ...
+  // Solo copio una para referencia, mantené el resto igual
   const canEdit = () => {
       if (shopData.email === ADMIN_EMAIL) return true; 
       if (shopData.subscription_status === 'active') return true;
@@ -179,6 +231,9 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
       }
       return false;
   };
+  
+  // MANTENÉ LAS OTRAS FUNCIONES (activateTrial, changeTemplate, etc) IGUAL QUE EN TU ARCHIVO ORIGINAL
+  // Solo cambia loadShopData y useEffect.
 
   const activateTrial = async (selectedPlan: 'simple' | 'full', selectedTemplate?: string) => {
       if (!shopData.id) return alert("Error: No se encontró la tienda. Recarga la página.");
@@ -187,14 +242,14 @@ export const ShopProvider = ({ children }: { children: ReactNode }) => {
       
       if (shopData.plan === 'simple' && selectedPlan === 'simple' && selectedTemplate && selectedTemplate !== shopData.templateLocked) {
           if (nextCount >= 1 && shopData.lastTemplateChange) {
-             const lastChange = new Date(shopData.lastTemplateChange);
-             const diffTime = Math.abs(new Date().getTime() - lastChange.getTime());
-             const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-             if (diffDays < 30) {
-                 alert(`🔒 CAMBIO BLOQUEADO\n\nYa usaste tu cambio permitido. Espera ${30 - diffDays} días.`);
-                 return false;
-             }
-             nextCount = 0; 
+              const lastChange = new Date(shopData.lastTemplateChange);
+              const diffTime = Math.abs(new Date().getTime() - lastChange.getTime());
+              const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+              if (diffDays < 30) {
+                  alert(`🔒 CAMBIO BLOQUEADO\n\nYa usaste tu cambio permitido. Espera ${30 - diffDays} días.`);
+                  return false;
+              }
+              nextCount = 0; 
           }
           nextCount += 1;
       }
