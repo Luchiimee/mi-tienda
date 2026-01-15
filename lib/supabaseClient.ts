@@ -1,6 +1,13 @@
-import { createClient } from '@supabase/supabase-js';
+import { createBrowserClient } from '@supabase/ssr'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+// Esta función crea un cliente especial que sabe leer/escribir las cookies
+// que el Middleware gestiona. Así la sesión se mantiene sincronizada.
+export const createClient = () =>
+  createBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  )
 
-export const supabase = createClient(supabaseUrl, supabaseKey);
+// Exportamos la instancia 'supabase' igual que antes para que
+// el resto de tu aplicación (ShopContext, Login, etc.) siga funcionando sin cambios.
+export const supabase = createClient()
