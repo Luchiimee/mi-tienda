@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { useShop } from '../context/ShopContext';
+import { useShop } from '../context/ShopContext'; // Ahora importamos isSuperAdmin de acá
 import { supabase } from '@/lib/supabaseClient'; 
 import { useRouter } from 'next/navigation';
 import { DOMAIN_URL } from '@/lib/constants';
@@ -11,7 +11,8 @@ import UpgradeModal from './UpgradeModal';
 interface SidebarProps { activeTab?: 'personalizar' | 'productos' | 'configuracion' | 'superadmin'; }
 
 export default function Sidebar({ activeTab = 'personalizar' }: SidebarProps) {
-  const { shopData, updateConfig, updateProduct, addProduct, deleteProduct, changeTemplate, canEdit, manualSave } = useShop();
+  // 👇 AQUÍ AGREGAMOS 'isSuperAdmin'
+  const { shopData, updateConfig, updateProduct, addProduct, deleteProduct, changeTemplate, canEdit, manualSave, isSuperAdmin } = useShop();
   const router = useRouter();
   
   const [plantillasAbierto, setPlantillasAbierto] = useState(true);
@@ -21,7 +22,6 @@ export default function Sidebar({ activeTab = 'personalizar' }: SidebarProps) {
   const [draggedItemIndex, setDraggedItemIndex] = useState<number | null>(null);
   const [localGallery, setLocalGallery] = useState<string[]>([]);
   
-  // ESTADO PARA EL MODAL
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
 
   const limitItems = shopData.template === 'personal' ? 4 : 2;
@@ -41,7 +41,6 @@ export default function Sidebar({ activeTab = 'personalizar' }: SidebarProps) {
   const togglePlantillas = () => setPlantillasAbierto(!plantillasAbierto);
   const toggleAcordeon = (seccion: string) => setSeccionAbierta(seccionAbierta === seccion ? null : seccion);
   
-  // --- FUNCIÓN CENTRALIZADA DE SEGURIDAD ---
   const checkEdit = () => { 
       if (!canEdit()) { 
           setShowUpgradeModal(true);
@@ -75,7 +74,6 @@ export default function Sidebar({ activeTab = 'personalizar' }: SidebarProps) {
 
   const copierLink = () => { 
       if(!shopData.slug) return alert("Define un link primero"); 
-      // 🔥 CORRECCIÓN: Forzamos minúsculas al copiar para evitar errores históricos
       navigator.clipboard.writeText(`${DOMAIN_URL}/${shopData.slug.toLowerCase()}`); 
       alert('¡Link copiado!'); 
   };
@@ -135,21 +133,14 @@ export default function Sidebar({ activeTab = 'personalizar' }: SidebarProps) {
       setDraggedItemIndex(null);
   };
 
-  // --- LÓGICA DE SELECCIÓN CON POP-UP Y RESTRICCIÓN ---
- // --- LÓGICA DE SELECCIÓN DE PLANTILLA ---
   const selectTemplate = async (val: string) => { 
       if (shopData.template === val) return;
-
-      // 🔒 BLOQUEO PARA PLAN BÁSICO EN SIDEBAR
       if (shopData.plan === 'simple') {
-          // Si intenta tocar una plantilla que no es la activa:
-          if (confirm(`⚠️ Plan Básico: La gestión de plantillas se hace desde Configuración.\n\nTienes 1 cambio de plantilla permitido al mes.\n\n¿Quieres ir a Configuración ahora para cambiarla?`)) {
+          if (confirm(`⚠️ Plan Básico: La gestión de plantillas se hace desde Configuración.\n\n¿Quieres ir a Configuración ahora?`)) {
               router.push('/configuracion');
           }
-          return; // Cortamos aquí, no dejamos que el sidebar cambie nada
+          return;
       }
-
-      // Si es Plan Full, dejamos cambiar normal
       const result = await changeTemplate(val);
       if (!result.success) {
           alert(result.message);
@@ -178,26 +169,12 @@ export default function Sidebar({ activeTab = 'personalizar' }: SidebarProps) {
     <>
       <UpgradeModal isOpen={showUpgradeModal} onClose={() => setShowUpgradeModal(false)} />
 
-      <aside 
-        className="sidebar" 
-        style={{ 
-            height: '100vh', 
-            minHeight: '100vh', // 🔥 ASEGURA ALTURA COMPLETA
-            position: 'sticky', 
-            top: 0, 
-            overflowY: 'auto',
-            display: 'flex',
-            flexDirection: 'column',
-            backgroundColor: '#1e293b', // Color de fondo del sidebar para que no se corte visualmente
-            color: 'white' // Texto blanco por defecto
-        }}
-      >
+      <aside className="sidebar" style={{ height: '100vh', minHeight: '100vh', position: 'sticky', top: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', backgroundColor: '#1e293b', color: 'white' }}>
         <div style={{ padding: '20px', marginBottom: 10 }}>
           <h1 style={{fontSize:18, margin:0, fontWeight:'bold'}}>Hola {shopData.nombreAdmin}</h1>
           <span style={{fontSize:12, color:'#94a3b8'}}>Panel Admin</span>
         </div>
         
-        {/* --- NAV --- */}
         <nav style={{ marginBottom: '20px', padding: '0 10px' }}>
           <ul style={{listStyle:'none', padding:0, margin:0}}>
             <li className={activeTab === 'personalizar' ? 'activo' : ''} style={{marginBottom:5}}><Link href="/admin" style={{ display: 'flex', alignItems: 'center', width: '100%', padding:'10px', textDecoration: 'none', color: activeTab === 'personalizar' ? 'white' : '#94a3b8', background: activeTab === 'personalizar' ? '#334155' : 'transparent', borderRadius:8 }}>🖌️ Personalizar</Link></li>
@@ -207,7 +184,7 @@ export default function Sidebar({ activeTab = 'personalizar' }: SidebarProps) {
                   onClick={(e) => {
                       if(shopData.template === 'personal') {
                           e.preventDefault();
-                          alert("⚠️ En la plantilla Personal (Links), no se usa el gestor de Productos avanzado.\n\nPuedes editar tus botones directamente desde el 'Item Rápido' aquí en el panel lateral.");
+                          alert("⚠️ En la plantilla Personal (Links), usa el 'Item Rápido' abajo.");
                       }
                   }} 
                   style={{ 
@@ -220,8 +197,8 @@ export default function Sidebar({ activeTab = 'personalizar' }: SidebarProps) {
             </li>
             <li className={activeTab === 'configuracion' ? 'activo' : ''} style={{marginBottom:5}}><Link href="/configuracion" style={{ display: 'flex', alignItems: 'center', width: '100%', padding:'10px', textDecoration: 'none', color: activeTab === 'configuracion' ? 'white' : '#94a3b8', background: activeTab === 'configuracion' ? '#334155' : 'transparent', borderRadius:8 }}>⚙️ Configuración</Link></li>
             
-            {/* BOTÓN SUPER ADMIN */}
-            {shopData.email === 'luchiimee2@gmail.com' && (
+            {/* BOTÓN SUPER ADMIN (USANDO LA LÓGICA DEL CONTEXTO) */}
+            {isSuperAdmin && (
                 <li style={{ marginTop: 20, borderTop: '1px solid #334155', paddingTop: 20 }} className={activeTab === 'superadmin' ? 'activo' : ''}>
                     <Link 
                         href="/superadmin" 
@@ -244,7 +221,6 @@ export default function Sidebar({ activeTab = 'personalizar' }: SidebarProps) {
                   {templates.map((t) => {
                     const isSelected = shopData.template === t.id;
                     const isLockedByPlan = shopData.plan === 'simple' && shopData.templateLocked && shopData.templateLocked !== t.id;
-                    
                     return (
                       <div 
                           key={t.id} 
@@ -272,7 +248,6 @@ export default function Sidebar({ activeTab = 'personalizar' }: SidebarProps) {
                 <label>Nombre</label><input type="text" name="nombreNegocio" value={shopData.nombreNegocio || ''} onChange={handleChange} onClick={checkEdit} />
                 <label>Descripción</label><input type="text" name="descripcion" value={shopData.descripcion || ''} onChange={handleChange} onClick={checkEdit} />
                 
-                {/* WHATSAPP */}
                 {shopData.template !== 'personal' && (
                     <>
                       <label>WhatsApp</label>
@@ -280,7 +255,6 @@ export default function Sidebar({ activeTab = 'personalizar' }: SidebarProps) {
                     </>
                 )}
                 
-                {/* SELECTOR DE TEMAS PARA 'PERSONAL' */}
                 {shopData.template === 'personal' && (
                     <div style={{marginTop:15, borderTop:'1px dashed #334155', paddingTop:10}}>
                         <label style={{fontSize:11, fontWeight:'bold', color:'#94a3b8', display:'block', marginBottom:5}}>Estilo de Botones</label>
@@ -322,15 +296,12 @@ export default function Sidebar({ activeTab = 'personalizar' }: SidebarProps) {
                    <label style={{fontSize:11, fontWeight:'bold', color:'#94a3b8'}}>Tu URL personalizada</label>
                    <div style={{display:'flex', gap:5, marginBottom:10}}>
                        <span style={{padding:'8px', background:'#334155', color:'#94a3b8', borderRadius:4, fontSize:12, display:'flex', alignItems:'center'}}>snappy.uno/</span>
-                       
-                       {/* 🔥 CORRECCIÓN: Input que fuerza minúsculas al escribir */}
                        <input 
                            type="text" 
                            name="slug" 
                            value={shopData.slug || ''} 
                            onChange={(e) => {
                                if (!checkEdit()) return;
-                               // Convertimos a minúsculas y reemplazamos espacios por guiones
                                const valorLimpio = e.target.value.toLowerCase().replace(/\s+/g, '-');
                                updateConfig({ slug: valorLimpio });
                            }} 
@@ -405,8 +376,8 @@ export default function Sidebar({ activeTab = 'personalizar' }: SidebarProps) {
 
                                       {localGallery.length > 2 && (
                                           <div style={{marginTop:10, padding:8, background:'#334155', borderRadius:4, fontSize:10, textAlign:'center', color:'#94a3b8', border:'1px solid #475569'}}>
-                                             Hay <b>{localGallery.length - 2}</b> foto(s) más. <br/>
-                                             <Link href="/productos" style={{color:'#3b82f6', fontWeight:'bold', textDecoration:'none'}}>Ver todas en Productos →</Link>
+                                              Hay <b>{localGallery.length - 2}</b> foto(s) más. <br/>
+                                              <Link href="/productos" style={{color:'#3b82f6', fontWeight:'bold', textDecoration:'none'}}>Ver todas en Productos →</Link>
                                           </div>
                                       )}
                                   </div>
@@ -418,10 +389,8 @@ export default function Sidebar({ activeTab = 'personalizar' }: SidebarProps) {
                               </>
                           )}
                           
-                          {/* LINK VER MÁS */}
                           {shopData.template !== 'personal' && <div style={{marginTop:5, textAlign:'center'}}><Link href="/productos" style={{fontSize:11, color:'#3b82f6', textDecoration:'none'}}>Ver todos los detalles →</Link></div>}
                           
-                          {/* BOTÓN DE ELIMINAR */}
                           <button 
                               onClick={handleDeleteItem} 
                               style={{
@@ -441,7 +410,6 @@ export default function Sidebar({ activeTab = 'personalizar' }: SidebarProps) {
           </div>
         )}
         
-        {/* FOOTER PEGADO AL FINAL */}
         <div style={{marginTop:'auto', width:'100%', borderTop:'1px solid #334155', paddingTop: 20, paddingBottom: 20, paddingLeft: 15, paddingRight: 15}}>
              <div className="producto" style={{marginBottom:10}}><button style={{width:'100%', padding:'10px', background:'#3b82f6', border:'none', borderRadius:6, cursor:'pointer'}}><a href={`${DOMAIN_URL}/${shopData.slug}`} target="_blank" style={{color:'white', textDecoration:'none', fontWeight:'bold', display:'block'}}>Ver {shopData.template} →</a></button></div>
              <div className="cerrar-sesion"><button onClick={handleLogout} style={{color:'#94a3b8', textAlign: 'center', width:'100%', background:'transparent', border:'none', cursor:'pointer', fontSize:14}}>Salir</button></div>
