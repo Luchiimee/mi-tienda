@@ -20,7 +20,10 @@ export default function PublicShopPage() {
 
   // --- CARGA DE DATOS ---
   useEffect(() => {
-    if (!slug) return;
+   if (!slug) {
+    setLoading(false);
+    return;
+}
 
     const fetchShopData = async () => {
       try {
