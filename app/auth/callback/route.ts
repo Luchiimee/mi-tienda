@@ -47,7 +47,7 @@ export async function GET(request: NextRequest) {
       return response
     }
   }
-// ... (tu código termina aquí)
+// ... (tu código termina aquíi)
   // Si falló, mandar a una página de error
   return NextResponse.redirect(`${origin}/auth/auth-code-error`)
 }
